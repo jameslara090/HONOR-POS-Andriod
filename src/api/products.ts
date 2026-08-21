@@ -62,7 +62,7 @@ function resolveProductImageUrl(value: string | null | undefined): string | unde
   return getApiUrl(`/storage/${path}`);
 }
 
-function mapApiProductToProduct(api: ApiProduct): Product {
+export function mapApiProductToProduct(api: ApiProduct): Product {
   const name = api.pd_desc?.trim() || api.pd_postext?.trim() || `Product ${api.id}`;
   const sku = String(api.pd_prodid ?? api.pd_vendor ?? api.id);
   const hasStockData = api.on_hand !== null && api.on_hand !== undefined;

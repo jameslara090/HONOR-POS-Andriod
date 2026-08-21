@@ -9,6 +9,8 @@ import * as SecureStore from 'expo-secure-store';
 
 const REGISTER_ID_KEY = 'pos_register_id';
 const DEFAULT_STORE_ID = Number(process.env.EXPO_PUBLIC_DEFAULT_STORE_ID ?? '1');
+const DEFAULT_STORE_NAME = process.env.EXPO_PUBLIC_DEFAULT_STORE_NAME ?? 'HONOR POS';
+const DEFAULT_STORE_LOCATION = process.env.EXPO_PUBLIC_DEFAULT_STORE_LOCATION ?? '';
 
 let cachedRegisterId: string | null = null;
 
@@ -31,4 +33,9 @@ export async function getRegisterId(): Promise<string> {
 
 export function getDefaultStoreId(): number {
   return DEFAULT_STORE_ID;
+}
+
+/** No company/store-info API is ported yet (out of this phase's scope) — receipts use this env-configured name/location until Phase 5's store selection lands. */
+export function getDefaultStoreInfo(): { name: string; location: string } {
+  return { name: DEFAULT_STORE_NAME, location: DEFAULT_STORE_LOCATION };
 }

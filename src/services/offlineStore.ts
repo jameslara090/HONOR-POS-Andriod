@@ -14,6 +14,7 @@
  * function below is called directly from src/api/*.ts, in-process.
  */
 import * as SQLite from 'expo-sqlite';
+import type { HeldCart } from '../types';
 
 const DB_NAME = 'pos-offline.db';
 
@@ -100,6 +101,12 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
           created_at INTEGER NOT NULL,
           attempts INTEGER NOT NULL DEFAULT 0,
           last_error TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS held_carts (
+          id TEXT PRIMARY KEY,
+          held_at INTEGER NOT NULL,
+          data TEXT NOT NULL
         );
       `);
       return db;
@@ -601,4 +608,28 @@ export async function offlineListPendingFloatingStockEvents(): Promise<PendingFl
 export async function offlineRemovePendingFloatingStockEvent(id: string): Promise<void> {
   const db = await getDb();
   await db.runAsync('DELETE FROM pending_floating_stock_events WHERE id = ?', [id]);
+}
+
+// ---------------------------------------------------------------------------
+// Held carts (Hold/Retrieve)
+// ---------------------------------------------------------------------------
+
+export async function offlineSaveHeldCart(cart: HeldCart): Promise<void> {
+  const db = await getDb();
+  await db.runAsync('INSERT OR REPLACE INTO held_carts (id, held_at, data) VALUES (?, ?, ?)', [
+    cart.id,
+    new Date(cart.heldAt).getTime(),
+    JSON.stringify(cart),
+  ]);
+}
+
+export async function offlineListHeldCarts(): Promise<HeldCart[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{ data: string }>('SELECT data FROM held_carts ORDER BY held_at ASC', []);
+  return rows.map((row) => JSON.parse(row.data));
+}
+
+export async function offlineRemoveHeldCart(id: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync('DELETE FROM held_carts WHERE id = ?', [id]);
 }

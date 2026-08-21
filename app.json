@@ -27,7 +27,8 @@
       "expo-status-bar",
       "expo-secure-store",
       "expo-font",
-      "expo-background-task"
+      "expo-background-task",
+      "expo-camera"
     ]
   }
 }

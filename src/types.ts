@@ -190,3 +190,95 @@ export interface CloseShiftResult {
 }
 
 export type CloseShiftOutcome = { kind: 'closed'; result: CloseShiftResult } | { kind: 'pending'; closingCash: number };
+
+/** Backend tender-type catalog row — drives the checkout UI's per-class rendering and rules. */
+export interface PosTenderType {
+  id: number;
+  code: string;
+  name: string;
+  bank_name: string | null;
+  tender_class: string;
+  sort_order: number;
+  metadata: Record<string, unknown>;
+}
+
+/** From Cart's quick-pay buttons — a hint, not a locked-in choice. */
+export type CheckoutTenderHint = 'cash' | 'gcash' | 'credit_card' | 'bank_transfer' | 'installment';
+
+/** One payment leg accumulated during checkout (before submission). */
+export interface SplitPaymentEntry {
+  amount: number;
+  label: string;
+  /** Backend sales_transactions.tender_type catalog code. */
+  tenderCode: string;
+  tenderClass: string;
+  referenceNumber?: string;
+  metadata?: Record<string, unknown>;
+}
+
+/** Present in the sale payload shape for parity with the desktop API, but nothing in this
+ * port (or the desktop's own CheckoutModal) currently constructs one — installment sales
+ * are recorded as a normal SplitPaymentEntry instead. */
+export interface PosSaleInstallment {
+  financing_company: string;
+  reference_number?: string | null;
+  down_payment: number;
+  term_months: number;
+  monthly_amount: number;
+}
+
+export interface PosSaleItem {
+  product_id: number;
+  name: string;
+  sku: string;
+  price: number;
+  quantity: number;
+  is_serialized: boolean;
+  serials: string[];
+}
+
+export interface PosSalePayment {
+  method: string;
+  amount: number;
+  reference_number?: string | null;
+}
+
+export interface PosSaleRequest {
+  store_id: number;
+  /** Stable id for offline queue replay (server stores as client_sale_uuid). */
+  client_sale_id?: string;
+  register?: string;
+  customer_name?: string | null;
+  customer_id?: number | null;
+  promoter_id?: string | null;
+  discount_code?: string | null;
+  discount_amt?: number;
+  discount_type_id?: number | null;
+  discount_manager_id?: string | null;
+  tender_type?: string;
+  trantype?: 'Retail' | 'Free';
+  change_amount?: number;
+  payments: PosSalePayment[];
+  items: PosSaleItem[];
+  installment?: PosSaleInstallment | null;
+}
+
+export interface PosSaleResult {
+  sale_id: number;
+  transac: string;
+  receipt: string;
+  trandate: string;
+  amount: number;
+  tender_amount?: number;
+  change_amount?: number;
+}
+
+export interface PosCustomer {
+  id: number;
+  name: string;
+  company?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+  tin?: string | null;
+}

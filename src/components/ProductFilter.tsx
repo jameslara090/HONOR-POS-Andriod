@@ -2,8 +2,9 @@
  * Controlled product filter bar — ported from the desktop's ProductFilter.tsx
  * behavior (search, category, sort, view-mode, scan), but as native controls:
  * category dropdown → horizontal chip row, sort dropdown → a small inline
- * menu (no outside-click-detection machinery needed on native), and the scan
- * field is a plain TextInput this phase (camera scanning is Phase 3).
+ * menu (no outside-click-detection machinery needed on native). The scan
+ * field is a plain TextInput (manual SKU/barcode/serial entry) alongside an
+ * optional camera-scan trigger (Phase 3 — expo-camera's built-in scanner).
  */
 import { useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
@@ -26,6 +27,7 @@ interface ProductFilterProps {
   onScanChange: (v: string) => void;
   onScanSubmit: (v: string) => void;
   scanError: string | null;
+  onOpenCamera?: () => void;
 }
 
 const SORT_OPTIONS: SortKey[] = ['name_asc', 'name_desc', 'price_asc', 'price_desc', 'stock_desc'];
@@ -58,15 +60,22 @@ export function ProductFilter(props: ProductFilterProps) {
       />
 
       <View>
-        <TextInput
-          value={props.scanValue}
-          onChangeText={props.onScanChange}
-          onSubmitEditing={(e) => props.onScanSubmit(e.nativeEvent.text)}
-          placeholder="Scan or enter SKU / barcode"
-          returnKeyType="search"
-          autoCapitalize="none"
-          className={`rounded-lg border px-3 py-2.5 text-sm ${props.scanError ? 'border-red-400' : 'border-gray-300'}`}
-        />
+        <View className="flex-row gap-2">
+          <TextInput
+            value={props.scanValue}
+            onChangeText={props.onScanChange}
+            onSubmitEditing={(e) => props.onScanSubmit(e.nativeEvent.text)}
+            placeholder="Scan or enter SKU / barcode / serial"
+            returnKeyType="search"
+            autoCapitalize="none"
+            className={`flex-1 rounded-lg border px-3 py-2.5 text-sm ${props.scanError ? 'border-red-400' : 'border-gray-300'}`}
+          />
+          {props.onOpenCamera && (
+            <Pressable onPress={props.onOpenCamera} className="items-center justify-center rounded-lg border border-gray-300 px-3">
+              <Text className="text-xs font-semibold text-gray-700">Camera</Text>
+            </Pressable>
+          )}
+        </View>
         {props.scanError && <Text className="mt-1 text-xs text-red-600">{props.scanError}</Text>}
       </View>
 

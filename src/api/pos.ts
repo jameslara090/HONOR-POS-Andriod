@@ -13,11 +13,21 @@
  */
 import { getApiUrl, getApiToken } from './config';
 import { nextOfflineShiftSyncStep } from './posOfflineShift';
-import type { CloseShiftOutcome, CloseShiftResult, EodReport, PosShiftInfo } from '../types';
+import type {
+  CloseShiftOutcome,
+  CloseShiftResult,
+  EodReport,
+  PosSaleRequest,
+  PosSaleResult,
+  PosShiftInfo,
+  PosTenderType,
+} from '../types';
 import * as Crypto from 'expo-crypto';
 import {
   offlineAddSyncedSale,
   offlineClearShiftState,
+  offlineEnqueueSale,
+  offlineFindCachedPromoter,
   offlineListPendingCashMovements,
   offlineListPendingFloatingStockEvents,
   offlineListPendingSales,
@@ -194,8 +204,27 @@ export async function getPosCategories(storeId?: number): Promise<string[]> {
   return body.data?.categories ?? body.data ?? [];
 }
 
+const FALLBACK_TENDERS: PosTenderType[] = [
+  { id: -1, code: '0', name: 'Cash', bank_name: null, tender_class: 'cash', sort_order: 0, metadata: {} },
+  { id: -2, code: 'GCASH', name: 'GCash', bank_name: null, tender_class: 'ewallet', sort_order: 10, metadata: {} },
+  { id: -3, code: '10', name: 'BDO STRAIGHT', bank_name: 'BDO', tender_class: 'credit_card', sort_order: 20, metadata: {} },
+  { id: -4, code: '48', name: 'BDO 24 MONTHS', bank_name: 'BDO', tender_class: 'installment', sort_order: 30, metadata: {} },
+];
+
+/** No ETag/localStorage caching layer this phase (a pure optimization) — always fetches fresh, falling back to a hardcoded catalog on failure so checkout never has zero tender options. */
+export async function getPosTenderTypes(): Promise<PosTenderType[]> {
+  try {
+    const res = await fetch(getApiUrl('/api/v1/pos/tender-types'), { method: 'GET', headers: getHeaders() });
+    const body = await parseJsonBody(res);
+    if (!res.ok) throw new Error(body.message ?? 'Failed to load tender types');
+    return body.data?.tender_types ?? FALLBACK_TENDERS;
+  } catch {
+    return FALLBACK_TENDERS;
+  }
+}
+
 // ---------------------------------------------------------------------------
-// Reconnect sync: shift state, then queued sales/cash-movements/voids
+// Sale recording (first-attempt) + reconnect sync of queued sales
 // ---------------------------------------------------------------------------
 
 export interface SaleSyncConflict {
@@ -203,7 +232,7 @@ export interface SaleSyncConflict {
   message: string;
 }
 
-async function postPendingSale(payload: Record<string, unknown>): Promise<{ ok: boolean; status: number; body: any }> {
+async function postPosSaleRequestRaw(payload: Record<string, unknown>): Promise<{ ok: boolean; status: number; body: any }> {
   const res = await fetch(getApiUrl('/api/v1/pos/sale'), {
     method: 'POST',
     headers: getHeaders(),
@@ -211,6 +240,61 @@ async function postPendingSale(payload: Record<string, unknown>): Promise<{ ok: 
   });
   const body = await parseJsonBody(res);
   return { ok: res.ok, status: res.status, body };
+}
+
+async function postPosSaleRequest(body: PosSaleRequest & { client_sale_id: string }): Promise<PosSaleResult> {
+  const { ok, status, body: responseBody } = await postPosSaleRequestRaw(body as unknown as Record<string, unknown>);
+  if (!ok) throwForFailedResponse(status, responseBody.message ?? 'Failed to record sale');
+  if (!responseBody.data) throw new Error('Unexpected response from sale endpoint');
+  return responseBody.data;
+}
+
+function computeSaleAmounts(payload: PosSaleRequest): { saleAmount: number; tenderAmount: number } {
+  const itemsTotal = payload.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const saleAmount = Math.max(0, itemsTotal - (payload.discount_amt ?? 0));
+  const tenderAmount = payload.payments.reduce((sum, p) => sum + p.amount, 0);
+  return { saleAmount, tenderAmount };
+}
+
+function buildOfflinePlaceholderResult(payload: PosSaleRequest, clientSaleId: string): PosSaleResult {
+  const { saleAmount, tenderAmount } = computeSaleAmounts(payload);
+  const short = clientSaleId.replace(/-/g, '').slice(0, 8).toUpperCase();
+  return {
+    sale_id: 0,
+    transac: `OFFLINE-${short}`,
+    receipt: `PENDING-${short}`,
+    trandate: new Date().toISOString(),
+    amount: saleAmount,
+    tender_amount: tenderAmount,
+    change_amount: payload.change_amount ?? 0,
+  };
+}
+
+/**
+ * Record a completed POS sale. When the network is unavailable, the sale is
+ * queued via offlineEnqueueSale and a placeholder receipt is returned —
+ * mirrors the desktop's recordPosSale exactly.
+ */
+export async function recordPosSale(payload: PosSaleRequest): Promise<PosSaleResult> {
+  const clientSaleId = payload.client_sale_id?.trim() || Crypto.randomUUID();
+  const body = { ...payload, client_sale_id: clientSaleId };
+
+  try {
+    const result = await postPosSaleRequest(body);
+    if (result.sale_id > 0 && payload.register) {
+      await offlineAddSyncedSale(payload.store_id, payload.register, {
+        saleId: result.sale_id,
+        receipt: result.receipt,
+        amount: result.amount,
+        trandate: result.trandate,
+      });
+    }
+    return result;
+  } catch (err) {
+    if (!isLikelyNetworkFailure(err)) throw err;
+    await offlineEnqueueSale({ id: clientSaleId, payload: body as unknown as Record<string, unknown>, createdAt: Date.now() });
+    return buildOfflinePlaceholderResult(payload, clientSaleId);
+  }
 }
 
 /**
@@ -233,7 +317,7 @@ export async function syncOfflinePendingSales(): Promise<{ synced: number; faile
       continue;
     }
     try {
-      const { ok, status, body } = await postPendingSale(row.payload);
+      const { ok, status, body } = await postPosSaleRequestRaw(row.payload);
       if (ok) {
         const sale = body?.data?.sale;
         if (sale && typeof row.payload.store_id === 'number' && typeof row.payload.register === 'string') {
@@ -394,4 +478,136 @@ export async function syncOfflineShiftState(context: {
   }
 
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Promoter validation — every sale requires a valid promoter id (see
+// CheckoutModal's canComplete gate); this is a convenience check only, the
+// id is stored as-entered server-side with no independent re-validation.
+// ---------------------------------------------------------------------------
+
+export interface ValidatePromoterResult {
+  valid: boolean;
+  name?: string;
+  user_id?: string;
+  message?: string;
+  /** True when this couldn't be checked live (network failure) — not a real "invalid" verdict. */
+  offline?: boolean;
+}
+
+/**
+ * Offline fallback — checks the locally cached "assigned to this store"
+ * roster so a promoter id can still be validated for real instead of
+ * blindly accepted. Only accepted-as-entered (`offline: true`) when the
+ * cache has never been populated for this store at all; a populated cache
+ * with no match is a genuine rejection even offline.
+ */
+async function validatePromoterOffline(identifier: string, storeId: number): Promise<ValidatePromoterResult> {
+  const match = await offlineFindCachedPromoter(storeId, identifier.trim());
+  if (match === undefined) {
+    return { valid: false, offline: true, message: 'Offline — promoter ID will be verified once back online.' };
+  }
+  if (match === null) {
+    return { valid: false, message: 'Promoter is not assigned to this store (checked offline cache).' };
+  }
+  return { valid: true, name: match.name, user_id: match.userId };
+}
+
+export async function validatePromoter(identifier: string, storeId: number): Promise<ValidatePromoterResult> {
+  try {
+    const res = await fetch(
+      getApiUrl(`/api/v1/pos/validate-promoter?identifier=${encodeURIComponent(identifier.trim())}&store_id=${storeId}`),
+      { method: 'GET', headers: getHeaders() }
+    );
+    const body = await parseJsonBody(res);
+    if (res.status === 401) return validatePromoterOffline(identifier, storeId);
+    if (!res.ok) return { valid: false, message: body.message ?? 'Validation failed.' };
+    return body;
+  } catch (err) {
+    if (!isLikelyNetworkFailure(err)) throw err;
+    return validatePromoterOffline(identifier, storeId);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Serial / IMEI lookup and validation
+// ---------------------------------------------------------------------------
+
+export interface SerialLookupProduct {
+  id: number;
+  pd_prodid?: number | string | null;
+  pd_desc?: string | null;
+  pd_postext?: string | null;
+  pd_price?: number | null;
+  pd_cat1?: string | null;
+  pd_vendor?: string | null;
+  is_serialized: boolean;
+  image: string | null;
+  on_hand: number;
+}
+
+export interface SerialLookupResult {
+  product: SerialLookupProduct;
+  serial_number: string;
+  imei_warning?: string | null;
+}
+
+const OFFLINE_LOOKUP_MESSAGE =
+  "Can't look up by serial while offline — search for the product and enter the serial from there instead.";
+
+/** Looks up a product by serial number — used when the cashier scans an IMEI/serial instead of a SKU barcode. Throws if not found. */
+export async function lookupSerial(params: { serial_number: string; store_id?: number | null }): Promise<SerialLookupResult> {
+  let res: Response;
+  try {
+    const query = new URLSearchParams({ serial_number: params.serial_number.trim() });
+    if (params.store_id != null) query.set('store_id', String(params.store_id));
+    res = await fetch(getApiUrl(`/api/v1/pos/lookup-serial?${query.toString()}`), { method: 'GET', headers: getHeaders() });
+  } catch (err) {
+    if (isLikelyNetworkFailure(err)) throw new Error(OFFLINE_LOOKUP_MESSAGE);
+    throw err;
+  }
+  if (res.status === 401) throw new Error(OFFLINE_LOOKUP_MESSAGE);
+  const body = await parseJsonBody(res);
+  if (!res.ok) throw new Error(body.message ?? 'Serial not found');
+  return body.data;
+}
+
+export interface ValidateSerialOutcome {
+  valid: boolean;
+  /** True when the live check couldn't run and the serial was accepted as entered. */
+  offline?: boolean;
+  message?: string;
+}
+
+/**
+ * Validates a serial exists in inventory for the given product/store. A
+ * genuine server rejection returns `{valid:false, message}`; when the live
+ * check can't run at all (network drop, or a 401 from an offline-login
+ * session with no real token), the serial is accepted as entered —
+ * `{valid:true, offline:true}` — and the backend's own validation at
+ * sale-commit time remains the authority.
+ */
+export async function validateSerial(params: {
+  serial_number: string;
+  product_id: number;
+  store_id?: number | null;
+}): Promise<ValidateSerialOutcome> {
+  try {
+    const res = await fetch(getApiUrl('/api/v1/pos/validate-serial'), {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        serial_number: params.serial_number.trim(),
+        product_id: params.product_id,
+        ...(params.store_id != null ? { store_id: params.store_id } : {}),
+      }),
+    });
+    if (res.status === 401) return { valid: true, offline: true };
+    const body = await parseJsonBody(res);
+    if (!res.ok) return { valid: false, message: body.message ?? 'Invalid serial' };
+    return { valid: true };
+  } catch (err) {
+    if (isLikelyNetworkFailure(err)) return { valid: true, offline: true };
+    throw err;
+  }
 }

@@ -8,6 +8,7 @@ import { Stack } from 'expo-router';
 import { initApiConfig } from '../src/api/config';
 import { AuthProvider, useAuthContext } from '../src/contexts/AuthContext';
 import { CatalogProvider } from '../src/contexts/CatalogContext';
+import { CartProvider } from '../src/contexts/CartContext';
 import { registerBackgroundSync } from '../src/services/backgroundSync';
 
 function RootNavigator() {
@@ -48,7 +49,9 @@ export default function RootLayout() {
         {configReady ? (
           <AuthProvider>
             <CatalogProvider>
-              <RootNavigator />
+              <CartProvider>
+                <RootNavigator />
+              </CartProvider>
             </CatalogProvider>
           </AuthProvider>
         ) : (
