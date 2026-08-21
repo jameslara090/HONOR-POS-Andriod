@@ -9,13 +9,13 @@ const OUT = 'bg-red-100 text-red-700';
 
 export function getOnHandBadge(product: { stock: number; hasStockData: boolean }): OnHandBadge {
   if (!product.hasStockData) {
-    return { label: '—', className: NEUTRAL };
+    return { label: 'On-Hand: —', className: NEUTRAL };
   }
   if (product.stock === 0) {
-    return { label: `${product.stock}`, className: OUT };
+    return { label: `On-Hand: ${product.stock}`, className: OUT };
   }
   if (product.stock < 10) {
-    return { label: `${product.stock}`, className: LOW };
+    return { label: `On-Hand: ${product.stock}`, className: LOW };
   }
-  return { label: `${product.stock}`, className: NEUTRAL };
+  return { label: `On-Hand: ${product.stock}`, className: NEUTRAL };
 }

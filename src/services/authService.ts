@@ -233,7 +233,7 @@ export async function verifyManagerCredentials(
     }
 
     const managerName = loginRes.data.user?.name ?? email;
-    const managerId = loginRes.data.user?.id != null ? String(loginRes.data.user.id) : null;
+    const managerId = getApiUserId(loginRes.data.user);
     const managerEmail = loginRes.data.user?.email ?? email;
 
     const meRes = await apiGetUser();

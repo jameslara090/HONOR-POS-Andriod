@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { ActivityIndicator, BackHandler, DevSettings, FlatList, Modal, Pressable, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthContext } from '../../src/contexts/AuthContext';
@@ -121,17 +121,24 @@ export default function PosHomeScreen() {
 
   const salesHistory = useSalesHistory({ storeId: STORE_ID, register: catalog.currentShift?.register ?? '' });
 
-  const handleScanSerial = (product: Product, quantity: number = 1) => {
-    if (!product.isSerialized) {
-      cart.addNonSerializedToCart(product, quantity);
-      return;
-    }
-    const existing = cart.items.find((i) => i.product.id === product.id);
-    setSerialProduct(product);
-    setSerialQuantity(Math.min(Math.max(1, quantity), product.stock));
-    setExistingSerials(existing?.serialNumbers ?? []);
-    setShowSerialModal(true);
-  };
+  const handleScanSerial = useCallback(
+    (product: Product, quantity: number = 1) => {
+      if (!product.isSerialized) {
+        cart.addNonSerializedToCart(product, quantity);
+        return;
+      }
+      const existing = cart.items.find((i) => i.product.id === product.id);
+      setSerialProduct(product);
+      setSerialQuantity(Math.min(Math.max(1, quantity), product.stock));
+      setExistingSerials(existing?.serialNumbers ?? []);
+      setShowSerialModal(true);
+    },
+    // `cart` itself is a fresh object every render (useCart returns a plain
+    // literal, not memoized); depending on it here would recreate this callback
+    // every render and defeat the ProductTile React.memo it's passed into.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cart.addNonSerializedToCart, cart.items]
+  );
 
   const { handleScan } = useScanHandler({
     products: catalog.products,

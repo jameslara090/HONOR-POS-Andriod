@@ -3,6 +3,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthContext } from '../../src/contexts/AuthContext';
 import { LoginForm } from '../../src/components/LoginForm';
 import { TOTPVerification } from '../../src/components/TOTPVerification';
+import { DevTestAccountsPanel } from '../../src/components/DevTestAccountsPanel';
 
 export default function LoginScreen() {
   const {
@@ -48,6 +49,8 @@ export default function LoginScreen() {
               />
             )}
           </View>
+
+          {!pendingUser && <DevTestAccountsPanel />}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

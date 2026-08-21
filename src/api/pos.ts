@@ -12,7 +12,7 @@
  * ported — not requested by any phase's checklist so far.
  */
 import { getApiUrl, getApiToken } from './config';
-import { nextOfflineShiftSyncStep } from './posOfflineShift';
+import { belongsToCurrentCashier, nextOfflineShiftSyncStep } from './posOfflineShift';
 import type {
   CashMovementResult,
   CloseShiftOutcome,
@@ -270,7 +270,7 @@ async function postPosSaleRequest(body: PosSaleRequest & { client_sale_id: strin
   return responseBody.data;
 }
 
-function computeSaleAmounts(payload: PosSaleRequest): { saleAmount: number; tenderAmount: number } {
+export function computeSaleAmounts(payload: PosSaleRequest): { saleAmount: number; tenderAmount: number } {
   const itemsTotal = payload.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const saleAmount = Math.max(0, itemsTotal - (payload.discount_amt ?? 0));
   const tenderAmount = payload.payments.reduce((sum, p) => sum + p.amount, 0);
@@ -417,6 +417,10 @@ export async function syncOfflineShiftState(context: {
 
   let shiftState = await offlineLoadShiftState(context.storeId, context.register);
   if (!shiftState) return result;
+
+  // A stale local shift left behind by a different cashier on this shared
+  // device must never be synced/opened under the current session.
+  if (!belongsToCurrentCashier(shiftState.cashierId, context.currentCashierId)) return result;
 
   if (shiftState.status === 'PENDING_OPEN') {
     try {

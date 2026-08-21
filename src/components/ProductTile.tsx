@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { Image, Pressable, Text, View } from 'react-native';
 import type { Product } from '../types';
 import { formatCurrency } from '../utils/currency';
@@ -12,7 +12,7 @@ interface ProductTileProps {
   onAddToCart: (product: Product, quantity: number) => void;
 }
 
-export function ProductTile({ product, variant, onAddToCart }: ProductTileProps) {
+export const ProductTile = memo(function ProductTile({ product, variant, onAddToCart }: ProductTileProps) {
   // FlatList gives each product its own component instance (keyExtractor =
   // item.id), so quantity/imgError always start fresh per product — no need
   // to reset them via an effect when the `product` prop changes.
@@ -123,4 +123,4 @@ export function ProductTile({ product, variant, onAddToCart }: ProductTileProps)
       {addButton}
     </View>
   );
-}
+});
