@@ -7,6 +7,8 @@ import { StatusBar } from 'expo-status-bar';
 import { Stack } from 'expo-router';
 import { initApiConfig } from '../src/api/config';
 import { AuthProvider, useAuthContext } from '../src/contexts/AuthContext';
+import { CatalogProvider } from '../src/contexts/CatalogContext';
+import { registerBackgroundSync } from '../src/services/backgroundSync';
 
 function RootNavigator() {
   const { isAuthenticated, authChecking } = useAuthContext();
@@ -36,6 +38,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     void initApiConfig().finally(() => setConfigReady(true));
+    void registerBackgroundSync();
   }, []);
 
   return (
@@ -44,7 +47,9 @@ export default function RootLayout() {
         <StatusBar style="auto" />
         {configReady ? (
           <AuthProvider>
-            <RootNavigator />
+            <CatalogProvider>
+              <RootNavigator />
+            </CatalogProvider>
           </AuthProvider>
         ) : (
           <View className="flex-1 items-center justify-center bg-white">
