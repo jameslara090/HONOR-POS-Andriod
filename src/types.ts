@@ -282,3 +282,221 @@ export interface PosCustomer {
   address?: string | null;
   tin?: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// Phase 4 — discount catalog / approval, reprint gate, sales history, refund
+// ---------------------------------------------------------------------------
+
+export interface PosDiscount {
+  id: number;
+  discount_name: string;
+  discount_type: string | null;
+  discount_value: string | null;
+  discount_rate: string | null;
+  discount_amount: string | null;
+  transaction_type_id: number | null;
+  transaction_type?: { id: number; transaction_type: string } | null;
+  is_active: boolean;
+}
+
+export type DiscountApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired' | 'cancelled';
+
+export interface DiscountApprovalRequestResult {
+  id: number;
+  status: DiscountApprovalStatus;
+  approved_by: number | null;
+  approver_name: string | null;
+  rejection_reason: string | null;
+  expires_at: string;
+}
+
+export interface CreateDiscountApprovalRequestParams {
+  storeId: number;
+  discountAmount: number;
+  discountReason?: string;
+  saleSubtotal?: number;
+}
+
+export type ReprintTargetType = 'sale' | 'zreport';
+export type ReprintRequestStatus = 'pending' | 'approved' | 'rejected' | 'expired' | 'cancelled';
+
+export interface ReprintRequestResult {
+  id: number;
+  status: ReprintRequestStatus;
+  type: ReprintTargetType;
+  target_id: number;
+  approved_by: number | null;
+  approver_name: string | null;
+  rejection_reason: string | null;
+  expires_at: string;
+}
+
+export type ReprintEligibilityReason = 'approved_grant' | 'free' | 'already_reprinted' | 'too_old';
+
+export interface ReprintEligibility {
+  can_reprint: boolean;
+  reason: ReprintEligibilityReason;
+  /** Present only when reason is 'approved_grant' — pass back to logReprint() to spend it. */
+  reprint_request_id: number | null;
+  pending_request: ReprintRequestResult | null;
+}
+
+export interface PosSaleSummary {
+  id: number;
+  receipt: string;
+  transaction: string;
+  date: string;
+  time: string;
+  mode: string;
+  tran_type: string;
+  amount: number;
+  tender_amount?: number;
+  change_amount?: number;
+  discount: number;
+  discount_code?: string | null;
+  customer?: string | null;
+  cashier?: string | null;
+  tender_type?: string | null;
+  items: string;
+  voided_at?: string | null;
+}
+
+export interface PosSaleItemDetail {
+  product_id: number;
+  name: string;
+  sku: string;
+  price: number;
+  quantity: number;
+  is_serialized: boolean;
+  serials: string[];
+}
+
+export interface PosSalePaymentDetail {
+  method: string;
+  tender_class: string;
+  amount: number;
+  reference_number: string | null;
+}
+
+export interface PosSaleDetail {
+  id: number;
+  transac: string;
+  receipt: string;
+  trandate: string | null;
+  mode: string;
+  amount: number;
+  tender_amount: number;
+  change_amount: number;
+  discamt: number;
+  disccode?: string | null;
+  chargeto: string | null;
+  tender_type?: string | null;
+  register?: string | null;
+  voided_at?: string | null;
+  cashier_name?: string | null;
+  promoter_id?: string | null;
+  store_name?: string | null;
+  store_location?: string | null;
+  store_tin?: string | null;
+  store_bir?: string | null;
+  items: PosSaleItemDetail[];
+  payments: PosSalePaymentDetail[];
+}
+
+export interface PosRefundItem {
+  product_id: number;
+  quantity: number;
+  is_serialized: boolean;
+  serials: string[];
+}
+
+export interface PosRefundRequest {
+  store_id: number;
+  register?: string;
+  original_sale_id: number;
+  items: PosRefundItem[];
+}
+
+export interface PosRefundResult {
+  refund_id: number;
+  transac: string;
+  receipt: string;
+  trandate: string;
+  amount: number;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5 — cash movement, sales summary, promoters, floating stock, warranty
+// ---------------------------------------------------------------------------
+
+export interface CashMovementResult {
+  id: number;
+  shift_id: number;
+  type: 'IN' | 'OUT';
+  amount: number;
+  reason?: string | null;
+  created_at: string;
+  /** True when this was queued locally and has not reached the server yet. */
+  queued?: boolean;
+}
+
+export type SalesSummaryGroupBy = 'payment_method' | 'cashier' | 'day';
+
+export interface SalesSummaryBreakdownRow {
+  label: string;
+  count: number;
+  gross: number;
+  discounts: number;
+  net: number;
+}
+
+export interface SalesSummaryReport {
+  period: { from: string; to: string };
+  group_by: SalesSummaryGroupBy;
+  totals: {
+    gross: number;
+    voids: number;
+    discounts: number;
+    net: number;
+    transactions: number;
+    voided_transactions: number;
+  };
+  breakdown: SalesSummaryBreakdownRow[];
+}
+
+export interface PromoterOption {
+  userId: string;
+  name: string;
+  email?: string | null;
+}
+
+export interface FloatingStockItem {
+  id: number;
+  serial_number: string;
+  product_desc?: string;
+  product_code?: string;
+  promoter_id?: string | null;
+  punched_out_by_name?: string;
+  punched_out_at: string;
+  notes?: string | null;
+  return_reason?: string | null;
+  status: 'OUT' | 'RETURNED' | 'SOLD';
+  hours_out: number | null;
+  /** True for a punch queued locally and not yet synced to the server. */
+  pendingSync?: boolean;
+}
+
+export interface WarrantyRecord {
+  id: number;
+  serial_number: string;
+  sold_at: string;
+  warranty_months: number;
+  expires_at: string;
+  status: 'active' | 'expired' | 'voided';
+  product_name?: string;
+  product_sku?: string;
+  customer_name?: string;
+  customer_phone?: string;
+  store_name?: string;
+  receipt?: string;
+}

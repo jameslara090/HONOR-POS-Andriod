@@ -118,6 +118,12 @@ export function useCart() {
     void offlineRemoveHeldCart(heldId);
   };
 
+  /** Discards a held cart without restoring it — RetrieveModal's per-item/"remove all" delete actions. */
+  const removeHeldCart = (heldId: string) => {
+    setHeldCarts((prev) => prev.filter((h) => h.id !== heldId));
+    void offlineRemoveHeldCart(heldId);
+  };
+
   return {
     items,
     discount,
@@ -134,5 +140,6 @@ export function useCart() {
     clearCart,
     holdCart,
     retrieveCart,
+    removeHeldCart,
   };
 }

@@ -12,6 +12,7 @@ import {
 import type { AdminUser } from '../services/authService';
 import { apiGetUser, apiCheckLockout, apiCheckUser, getAuthToken, removeAuthToken } from '../services/apiService';
 import { setApiBaseUrlOverride } from '../api/config';
+import { verifySessionPin } from '../api/pos';
 
 /** Idle time in background before the app requires the password again. */
 const SESSION_IDLE_LOCK_MS = 5 * 60_000;
@@ -217,22 +218,33 @@ export function useAuth() {
     }
   };
 
-  /** Re-proves the current user's own password to dismiss the lock screen. */
-  const unlock = async (password: string): Promise<{ success: boolean; message?: string }> => {
+  /**
+   * Dismisses the lock screen — ported from the desktop's App.tsx handleUnlock/
+   * unlockLocally. Only ever compares the entered ID against this same
+   * already-authenticated user's own id, no password re-entry — a value
+   * already held in memory as currentUser.id. verifySessionPin is a live
+   * server check (so a locked-out/disabled account can't self-unlock even
+   * with the right ID); when it can't reach a real verdict (network failure,
+   * or no valid token because this session logged in fully offline) that's
+   * not a real "wrong ID" rejection, so it falls back to the local compare.
+   */
+  const unlock = async (userId: string): Promise<{ success: boolean; message?: string }> => {
     if (!currentUser) return { success: false, message: 'No active session.' };
-    const { user, error } = await validateAdminCredentials(currentUser.email, password);
-    if (user && user.id === currentUser.id) {
-      setIsLocked(false);
-      return { success: true };
-    }
-    if (shouldOfferOfflineLogin(error)) {
-      const offline = await tryOfflineCredentialLogin(currentUser.email, password);
-      if (offline.user && offline.user.id === currentUser.id) {
+    const unlockLocally = (): { success: boolean; message?: string } => {
+      if (userId.trim() === currentUser.id) {
         setIsLocked(false);
         return { success: true };
       }
+      return { success: false, message: 'Incorrect User ID. Please try again.' };
+    };
+    try {
+      const result = await verifySessionPin(userId);
+      if (result.unauthenticated) return unlockLocally();
+      if (result.success) setIsLocked(false);
+      return result;
+    } catch {
+      return unlockLocally();
     }
-    return { success: false, message: 'Incorrect password. Please try again.' };
   };
 
   const handleApplyApiBaseUrl = (url: string): string => {

@@ -9,7 +9,8 @@
  */
 import * as BackgroundTask from 'expo-background-task';
 import * as TaskManager from 'expo-task-manager';
-import { syncOfflinePendingFloatingStockEvents, syncOfflinePendingSales } from '../api/pos';
+import { cacheStorePromoters, syncOfflinePendingFloatingStockEvents, syncOfflinePendingSales } from '../api/pos';
+import { getDefaultStoreId } from './terminalConfig';
 
 export const SYNC_TASK_NAME = 'pos-offline-sync';
 
@@ -17,6 +18,7 @@ TaskManager.defineTask(SYNC_TASK_NAME, async () => {
   try {
     await syncOfflinePendingSales();
     await syncOfflinePendingFloatingStockEvents();
+    void cacheStorePromoters(getDefaultStoreId());
     return BackgroundTask.BackgroundTaskResult.Success;
   } catch {
     return BackgroundTask.BackgroundTaskResult.Failed;

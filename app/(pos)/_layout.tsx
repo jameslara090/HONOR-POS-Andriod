@@ -1,12 +1,12 @@
 import { Stack } from 'expo-router';
 import { useAuthContext } from '../../src/contexts/AuthContext';
-import { SessionLockScreen } from '../../src/components/SessionLockScreen';
+import { SessionLockModal } from '../../src/components/SessionLockModal';
 
 export default function PosLayout() {
-  const { isLocked } = useAuthContext();
+  const { isLocked, currentUser, unlock } = useAuthContext();
 
   if (isLocked) {
-    return <SessionLockScreen />;
+    return <SessionLockModal userName={currentUser?.name ?? ''} onUnlock={unlock} forcedLogoutAfterMinutes={180} />;
   }
 
   return (

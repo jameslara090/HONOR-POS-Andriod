@@ -6,7 +6,7 @@
  */
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import type { ReceiptData } from '../types';
+import type { EodReport, ReceiptData } from '../types';
 import { formatCurrency } from '../utils/currency';
 
 function escapeHtml(value: string): string {
@@ -104,6 +104,62 @@ function buildReceiptHtml(data: ReceiptData): string {
 /** Renders the receipt to PDF and opens the share sheet — the only wired print path this phase. */
 export async function printReceipt(data: ReceiptData): Promise<void> {
   const html = buildReceiptHtml(data);
+  const { uri } = await Print.printToFileAsync({ html });
+  const canShare = await Sharing.isAvailableAsync();
+  if (canShare) {
+    await Sharing.shareAsync(uri);
+  }
+}
+
+function buildZReportHtml(report: EodReport): string {
+  const row = (label: string, value: string, bold = false) =>
+    `<div class="row${bold ? ' bold' : ''}"><span>${escapeHtml(label)}</span><span>${escapeHtml(value)}</span></div>`;
+  const tenders = report.tenders_breakdown ?? Object.entries(report.payment_breakdown ?? {}).map(([method, total]) => ({ method, total }));
+
+  return `
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <style>
+          body { font-family: 'Courier New', monospace; font-size: 11pt; width: 280px; margin: 0 auto; }
+          .center { text-align: center; }
+          .bold { font-weight: bold; }
+          .row { display: flex; justify-content: space-between; }
+          hr { border: none; border-top: 1px dashed #999; margin: 6px 0; }
+        </style>
+      </head>
+      <body>
+        ${report.company_name ? `<div class="center bold">${escapeHtml(report.company_name)}</div>` : ''}
+        <div class="center bold">${escapeHtml(report.store_name)}</div>
+        ${report.store_location ? `<div class="center">${escapeHtml(report.store_location)}</div>` : ''}
+        <div class="center bold">Z - R E A D I N G</div>
+        <hr />
+        ${row('Register', report.register)}
+        ${row('Sold By', report.cashier_name)}
+        ${row('Date', report.date)}
+        ${row('Z-Number', report.z_number)}
+        <hr />
+        ${row(`Gross Sales (${report.gross_count})`, formatCurrency(report.gross_total))}
+        ${report.void_total > 0 ? row(`Voids (${report.void_count})`, `-${formatCurrency(report.void_total)}`) : ''}
+        ${report.refund_total > 0 ? row(`Refunds (${report.refund_count})`, `-${formatCurrency(report.refund_total)}`) : ''}
+        ${row('Net Sales', formatCurrency(report.net_sales), true)}
+        <hr />
+        ${tenders.map((t) => row(t.method, formatCurrency(t.total))).join('')}
+        <hr />
+        ${row('Opening Cash', formatCurrency(report.opening_cash))}
+        ${row('Expected Cash', formatCurrency(report.expected_cash))}
+        ${report.closing_cash != null ? row('Declared Cash', formatCurrency(report.closing_cash)) : ''}
+        <hr />
+        ${row('VATable Sales', formatCurrency(report.vatable_sales))}
+        ${row('VAT', formatCurrency(report.vat_amount))}
+      </body>
+    </html>
+  `;
+}
+
+/** Renders the Z-report to PDF and opens the share sheet. */
+export async function printZReport(report: EodReport): Promise<void> {
+  const html = buildZReportHtml(report);
   const { uri } = await Print.printToFileAsync({ html });
   const canShare = await Sharing.isAvailableAsync();
   if (canShare) {

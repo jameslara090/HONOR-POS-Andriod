@@ -1,5 +1,6 @@
 /**
- * Shift / sale-sync / floating-stock-sync API — ported from the desktop's
+ * Shift / sale-sync / floating-stock-sync / discount-approval / reprint-gate
+ * / sales-history / void / refund API — ported from the desktop's
  * src/ui/api/pos.ts. The online/offline decision pattern is unchanged: try
  * the network call first, and on a network-shaped failure fall back to the
  * SQLite-backed offline store (src/services/offlineStore.ts) instead of the
@@ -7,27 +8,47 @@
  * boundary here, so those calls are direct and unconditional (the desktop's
  * `window.electron?.xxx` presence guards are dropped).
  *
- * Only the shift + sale/floating-stock sync surface needed by Phase 2 is
- * ported here; getXReport/getReadingReport, cash-movement, void, and
- * promoter-validation endpoints are added in the later phases that use them.
+ * getXReport/getReadingReport and cash-movement endpoints are still not
+ * ported — not requested by any phase's checklist so far.
  */
 import { getApiUrl, getApiToken } from './config';
 import { nextOfflineShiftSyncStep } from './posOfflineShift';
 import type {
+  CashMovementResult,
   CloseShiftOutcome,
   CloseShiftResult,
+  CreateDiscountApprovalRequestParams,
+  DiscountApprovalRequestResult,
   EodReport,
+  FloatingStockItem,
+  PosDiscount,
+  PosRefundRequest,
+  PosRefundResult,
+  PosSaleDetail,
   PosSaleRequest,
   PosSaleResult,
+  PosSaleSummary,
   PosShiftInfo,
   PosTenderType,
+  PromoterOption,
+  ReprintEligibility,
+  ReprintRequestResult,
+  ReprintTargetType,
+  SalesSummaryGroupBy,
+  SalesSummaryReport,
+  WarrantyRecord,
 } from '../types';
 import * as Crypto from 'expo-crypto';
 import {
   offlineAddSyncedSale,
+  offlineCachePromoters,
   offlineClearShiftState,
+  offlineEnqueueCashMovement,
+  offlineEnqueueFloatingStockEvent,
   offlineEnqueueSale,
+  offlineEnqueueVoid,
   offlineFindCachedPromoter,
+  offlineListCachedPromoters,
   offlineListPendingCashMovements,
   offlineListPendingFloatingStockEvents,
   offlineListPendingSales,
@@ -610,4 +631,480 @@ export async function validateSerial(params: {
     if (isLikelyNetworkFailure(err)) return { valid: true, offline: true };
     throw err;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Discount catalog + remote approval requests
+// ---------------------------------------------------------------------------
+
+/** Network/auth failure — caller should fall back to in-person/offline approval rather than assume the discount is unapprovable. */
+export class DiscountApprovalUnavailableError extends Error {}
+
+/** No ETag/localStorage caching layer this phase (a pure optimization, same call as Phase 3's getPosTenderTypes) — always fetches fresh. */
+export async function getPosDiscounts(): Promise<PosDiscount[]> {
+  const res = await fetch(getApiUrl('/api/v1/pos/discounts'), { method: 'GET', headers: getHeaders() });
+  const body = await parseJsonBody(res);
+  if (!res.ok) throw new Error(body.message ?? 'Failed to load discounts');
+  return body.data?.discounts ?? [];
+}
+
+export async function createDiscountApprovalRequest(
+  params: CreateDiscountApprovalRequestParams
+): Promise<DiscountApprovalRequestResult> {
+  try {
+    const res = await fetch(getApiUrl('/api/v1/pos/discount-approval-requests'), {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        client_request_uuid: Crypto.randomUUID(),
+        store_id: params.storeId,
+        discount_amount: params.discountAmount,
+        discount_reason: params.discountReason,
+        sale_subtotal: params.saleSubtotal,
+      }),
+    });
+    if (res.status === 401) throw new DiscountApprovalUnavailableError('Not connected to the server.');
+    const body = await parseJsonBody(res);
+    if (!res.ok || !body.data) throw new Error(body.message ?? 'Failed to create discount approval request.');
+    return body.data.request;
+  } catch (err) {
+    if (err instanceof DiscountApprovalUnavailableError) throw err;
+    if (isLikelyNetworkFailure(err)) throw new DiscountApprovalUnavailableError('Cannot reach the server.');
+    throw err;
+  }
+}
+
+export async function getDiscountApprovalRequest(id: number): Promise<DiscountApprovalRequestResult> {
+  try {
+    const res = await fetch(getApiUrl(`/api/v1/pos/discount-approval-requests/${id}`), { headers: getHeaders() });
+    if (res.status === 401) throw new DiscountApprovalUnavailableError('Not connected to the server.');
+    const body = await parseJsonBody(res);
+    if (!res.ok || !body.data) throw new Error(body.message ?? 'Failed to check discount approval request.');
+    return body.data.request;
+  } catch (err) {
+    if (err instanceof DiscountApprovalUnavailableError) throw err;
+    if (isLikelyNetworkFailure(err)) throw new DiscountApprovalUnavailableError('Cannot reach the server.');
+    throw err;
+  }
+}
+
+/** Best-effort — the request will simply expire server-side instead if this fails. */
+export async function cancelDiscountApprovalRequest(id: number): Promise<void> {
+  try {
+    await fetch(getApiUrl(`/api/v1/pos/discount-approval-requests/${id}/cancel`), { method: 'POST', headers: getHeaders() });
+  } catch {
+    // best-effort
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Reprint gate — one free reprint per sale/Z-report within 24h; after that,
+// or on the very first reprint if >24h has passed, needs is_approver approval.
+// ---------------------------------------------------------------------------
+
+/** Network/auth failure — caller should treat the reprint as unavailable rather than assume it's free. */
+export class ReprintGateUnavailableError extends Error {}
+
+export async function getReprintEligibility(type: ReprintTargetType, targetId: number): Promise<ReprintEligibility> {
+  try {
+    const res = await fetch(getApiUrl(`/api/v1/pos/reprints/status?type=${type}&target_id=${targetId}`), { headers: getHeaders() });
+    if (res.status === 401) throw new ReprintGateUnavailableError('Not connected to the server.');
+    const body = await parseJsonBody(res);
+    if (!res.ok || !body.data) throw new Error(body.message ?? 'Failed to check reprint eligibility.');
+    return body.data;
+  } catch (err) {
+    if (err instanceof ReprintGateUnavailableError) throw err;
+    if (isLikelyNetworkFailure(err)) throw new ReprintGateUnavailableError('Cannot reach the server.');
+    throw err;
+  }
+}
+
+export async function createReprintRequest(type: ReprintTargetType, targetId: number): Promise<ReprintRequestResult> {
+  try {
+    const res = await fetch(getApiUrl('/api/v1/pos/reprints/requests'), {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ client_request_uuid: Crypto.randomUUID(), type, target_id: targetId }),
+    });
+    if (res.status === 401) throw new ReprintGateUnavailableError('Not connected to the server.');
+    const body = await parseJsonBody(res);
+    if (!res.ok || !body.data) throw new Error(body.message ?? 'Failed to create reprint request.');
+    return body.data.request;
+  } catch (err) {
+    if (err instanceof ReprintGateUnavailableError) throw err;
+    if (isLikelyNetworkFailure(err)) throw new ReprintGateUnavailableError('Cannot reach the server.');
+    throw err;
+  }
+}
+
+export async function getReprintRequest(id: number): Promise<ReprintRequestResult> {
+  try {
+    const res = await fetch(getApiUrl(`/api/v1/pos/reprints/requests/${id}`), { headers: getHeaders() });
+    if (res.status === 401) throw new ReprintGateUnavailableError('Not connected to the server.');
+    const body = await parseJsonBody(res);
+    if (!res.ok || !body.data) throw new Error(body.message ?? 'Failed to check reprint request.');
+    return body.data.request;
+  } catch (err) {
+    if (err instanceof ReprintGateUnavailableError) throw err;
+    if (isLikelyNetworkFailure(err)) throw new ReprintGateUnavailableError('Cannot reach the server.');
+    throw err;
+  }
+}
+
+/** Best-effort — called when the cashier closes the waiting UI early. Never blocks on failure. */
+export async function cancelReprintRequest(id: number): Promise<void> {
+  try {
+    await fetch(getApiUrl(`/api/v1/pos/reprints/requests/${id}/cancel`), { method: 'POST', headers: getHeaders() });
+  } catch {
+    // best-effort — the request will simply expire server-side instead
+  }
+}
+
+/**
+ * Records that a reprint actually happened, right after the print fires.
+ * Pass reprintRequestId when this print is spending an approved grant; omit
+ * it for the free-window path. Server re-validates either way.
+ */
+export async function logReprint(type: ReprintTargetType, targetId: number, reprintRequestId?: number | null): Promise<void> {
+  const res = await fetch(getApiUrl('/api/v1/pos/reprints/log'), {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ type, target_id: targetId, reprint_request_id: reprintRequestId ?? undefined }),
+  });
+  const body = await parseJsonBody(res);
+  if (!res.ok || !body.success) throw new Error(body.message ?? 'Failed to record reprint.');
+}
+
+// ---------------------------------------------------------------------------
+// Sales history, void, refund
+// ---------------------------------------------------------------------------
+
+/** No server-side pagination — returns the full date-range result set; callers paginate client-side. */
+export async function getPosSales(params: { storeId?: number | null; dateFrom?: string; dateTo?: string } = {}): Promise<PosSaleSummary[]> {
+  const query = new URLSearchParams();
+  if (params.storeId != null) query.set('store_id', String(params.storeId));
+  if (params.dateFrom) query.set('date_from', params.dateFrom);
+  if (params.dateTo) query.set('date_to', params.dateTo);
+  const res = await fetch(getApiUrl(`/api/v1/pos/sales?${query.toString()}`), { headers: getHeaders() });
+  const body = await parseJsonBody(res);
+  if (!res.ok) throw new Error(body.message ?? 'Failed to load sales history');
+  return body.data?.sales ?? [];
+}
+
+export async function getSaleById(saleId: number): Promise<PosSaleDetail> {
+  const res = await fetch(getApiUrl(`/api/v1/pos/sale/${saleId}`), { headers: getHeaders() });
+  const body = await parseJsonBody(res);
+  if (!res.ok) throw new Error(body.message ?? 'Failed to load sale');
+  if (!body.data?.sale) throw new Error('Unexpected response');
+  return body.data.sale;
+}
+
+/**
+ * Voids a sale. On a network failure, queues via offlineEnqueueVoid against
+ * this register's active local shift state (there must be one — a void with
+ * no local shift record to key on can't be queued) and returns
+ * `{queued: true}`; the background sync loop in useCatalog.ts clears it once
+ * back online.
+ */
+export async function voidPosSale(
+  saleId: number,
+  reason: string | null,
+  params: { storeId: number; register: string; cashierId: string; approvedByManagerId?: string }
+): Promise<{ queued: boolean }> {
+  const clientVoidUuid = Crypto.randomUUID();
+  try {
+    const res = await fetch(getApiUrl(`/api/v1/pos/sale/${saleId}/void`), {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        void_reason: reason ?? null,
+        client_void_uuid: clientVoidUuid,
+        approved_by_manager_id: params.approvedByManagerId ?? null,
+      }),
+    });
+    const body = await parseJsonBody(res);
+    if (!res.ok) throwForFailedResponse(res.status, body.message ?? 'Failed to void sale');
+    return { queued: false };
+  } catch (err) {
+    if (!isLikelyNetworkFailure(err)) throw err;
+    const shiftState = await offlineLoadShiftState(params.storeId, params.register);
+    if (!shiftState) throw new Error('No active shift found for this register — cannot queue a void offline.');
+    await offlineEnqueueVoid({
+      id: clientVoidUuid,
+      originalSaleId: saleId,
+      reason: reason ?? null,
+      approvedByManagerId: params.approvedByManagerId ?? '',
+      cashierId: params.cashierId,
+      createdAt: Date.now(),
+    });
+    return { queued: true };
+  }
+}
+
+/** Online-only this phase — the desktop's own design docs confirm refund offline support was never built. */
+export async function recordPosRefund(payload: PosRefundRequest): Promise<PosRefundResult> {
+  const res = await fetch(getApiUrl('/api/v1/pos/refund'), {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({
+      store_id: payload.store_id,
+      register: payload.register,
+      original_sale_id: payload.original_sale_id,
+      items: payload.items.map((i) => ({ product_id: i.product_id, quantity: i.quantity, is_serialized: i.is_serialized, serials: i.serials ?? [] })),
+    }),
+  });
+  const body = await parseJsonBody(res);
+  if (!res.ok) throwForFailedResponse(res.status, body.message ?? 'Failed to record refund');
+  if (!body.data) throw new Error('Unexpected response from refund endpoint');
+  return body.data;
+}
+
+// ---------------------------------------------------------------------------
+// Cash movement (cash in / cash out during an open shift)
+// ---------------------------------------------------------------------------
+
+/** Record a cash in or cash out movement for the active shift. Falls back to a local queue when offline. */
+export async function recordCashMovement(params: {
+  storeId: number;
+  register: string;
+  type: 'IN' | 'OUT';
+  amount: number;
+  reason?: string;
+  cashierId: string;
+}): Promise<CashMovementResult> {
+  const clientMovementId = Crypto.randomUUID();
+  const payload = {
+    store_id: params.storeId,
+    register: params.register,
+    type: params.type,
+    amount: params.amount,
+    reason: params.reason,
+    client_movement_uuid: clientMovementId,
+  };
+
+  try {
+    const res = await fetch(getApiUrl('/api/v1/pos/shift/cash-movement'), {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const body = await parseJsonBody(res);
+    if (!res.ok) throwForFailedResponse(res.status, body.message ?? 'Failed to record cash movement');
+    if (!body.data?.movement) throw new Error('Unexpected response');
+    return body.data.movement;
+  } catch (err) {
+    if (!isLikelyNetworkFailure(err)) throw err;
+    const shiftState = await offlineLoadShiftState(params.storeId, params.register);
+    if (!shiftState) throw new Error('No active shift found for this register — cannot queue a cash movement offline.');
+    await offlineEnqueueCashMovement({
+      id: clientMovementId,
+      clientShiftId: shiftState.clientShiftId,
+      cashierId: params.cashierId,
+      payload,
+      createdAt: Date.now(),
+    });
+    return {
+      id: 0,
+      shift_id: shiftState.serverShiftId ?? 0,
+      type: params.type,
+      amount: params.amount,
+      reason: params.reason ?? null,
+      created_at: new Date().toISOString(),
+      queued: true,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Sales summary report
+// ---------------------------------------------------------------------------
+
+export async function getSalesSummary(params: {
+  storeId: number;
+  dateFrom: string;
+  dateTo: string;
+  groupBy: SalesSummaryGroupBy;
+}): Promise<SalesSummaryReport> {
+  const url = new URL(getApiUrl('/api/v1/pos/sales-summary'));
+  url.searchParams.set('store_id', String(params.storeId));
+  url.searchParams.set('date_from', params.dateFrom);
+  url.searchParams.set('date_to', params.dateTo);
+  url.searchParams.set('group_by', params.groupBy);
+  const res = await fetch(url.toString(), { headers: getHeaders() });
+  const body = await parseJsonBody(res);
+  if (!res.ok) throwForFailedResponse(res.status, body.message ?? 'Failed to load sales summary');
+  if (!body.data) throw new Error('No data in sales summary response');
+  return body.data;
+}
+
+// ---------------------------------------------------------------------------
+// Promoter roster (store-scoped search list backing PromoterComboBox) + the
+// session-lock PIN check
+// ---------------------------------------------------------------------------
+
+/**
+ * Store-scoped promoter/OIC roster — the population the search dropdown (in
+ * CheckoutModal and FloatingStockModal) searches over, and validatePromoter()
+ * validates against offline. Live: fetches and re-caches. Offline: reads the
+ * last cached roster.
+ */
+export async function getStorePromoters(storeId: number): Promise<PromoterOption[]> {
+  try {
+    const res = await fetch(getApiUrl(`/api/v1/pos/promoters?store_id=${storeId}`), { headers: getHeaders() });
+    if (!res.ok) throw new Error('Failed to load promoters');
+    const body = (await parseJsonBody(res)) as { success?: boolean; data?: { user_id: string; name: string; email?: string | null }[] };
+    if (!body.success || !Array.isArray(body.data)) throw new Error('Failed to load promoters');
+    const list = body.data.map((p) => ({ userId: p.user_id, name: p.name, email: p.email ?? null }));
+    await offlineCachePromoters(storeId, list);
+    return list;
+  } catch {
+    return offlineListCachedPromoters(storeId);
+  }
+}
+
+/** Refreshes this store's promoter/OIC roster cache — best-effort, call whenever online (e.g. shift open). */
+export async function cacheStorePromoters(storeId: number): Promise<void> {
+  await getStorePromoters(storeId);
+}
+
+/** Verify the session PIN (user's ID) for the auto-lock screen. */
+export async function verifySessionPin(userId: string): Promise<{ success: boolean; message: string; unauthenticated?: boolean }> {
+  const res = await fetch(getApiUrl('/api/v1/pos/verify-session-pin'), {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ user_id: userId }),
+  });
+  const body = (await parseJsonBody(res)) as { success: boolean; message: string };
+  if (res.status === 401) {
+    // No valid API token to check (e.g. this session logged in fully offline and
+    // never obtained one) — not a real "wrong ID" verdict, so the caller should
+    // fall back to the local check rather than surface this as a rejection.
+    return { ...body, unauthenticated: true };
+  }
+  return body;
+}
+
+// ---------------------------------------------------------------------------
+// Floating stock (demo units taken to the display floor) — a punch is purely
+// an audit log on the backend, it never touches stock. When offline, queued
+// locally and flushed by syncOfflinePendingFloatingStockEvents() on reconnect.
+// ---------------------------------------------------------------------------
+
+interface FloatingStockActionResponse {
+  success: boolean;
+  message?: string;
+}
+
+export async function punchOutFloatingStock(params: { serialNumber: string; storeId: number; promoterId?: string; notes?: string }): Promise<{ queued: boolean }> {
+  const body = {
+    serial_number: params.serialNumber,
+    store_id: params.storeId,
+    promoter_id: params.promoterId || undefined,
+    notes: params.notes || undefined,
+  };
+  try {
+    const res = await fetch(getApiUrl('/api/v1/pos/floating-stock/punch-out'), {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(body),
+    });
+    const resBody = (await parseJsonBody(res)) as FloatingStockActionResponse;
+    if (!res.ok || !resBody.success) throw new Error(resBody.message ?? 'Failed to punch out serial.');
+    return { queued: false };
+  } catch (err) {
+    if (!isLikelyNetworkFailure(err)) throw err;
+    await offlineEnqueueFloatingStockEvent({ id: Crypto.randomUUID(), action: 'OUT', payload: body, createdAt: Date.now() });
+    return { queued: true };
+  }
+}
+
+export async function punchInFloatingStock(params: { serialNumber: string; storeId: number; reason?: string }): Promise<{ queued: boolean }> {
+  const body = { serial_number: params.serialNumber, store_id: params.storeId, reason: params.reason || undefined };
+  try {
+    const res = await fetch(getApiUrl('/api/v1/pos/floating-stock/punch-in'), {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(body),
+    });
+    const resBody = (await parseJsonBody(res)) as FloatingStockActionResponse;
+    if (!res.ok || !resBody.success) throw new Error(resBody.message ?? 'Failed to punch in serial.');
+    return { queued: false };
+  } catch (err) {
+    if (!isLikelyNetworkFailure(err)) throw err;
+    await offlineEnqueueFloatingStockEvent({ id: Crypto.randomUUID(), action: 'IN', payload: body, createdAt: Date.now() });
+    return { queued: true };
+  }
+}
+
+/**
+ * Merges in any not-yet-synced local punches so the "currently out" list stays
+ * accurate offline (or right after reconnecting, before the sync loop has run).
+ */
+function applyPendingFloatingStockEvents(
+  serverItems: FloatingStockItem[],
+  pending: { action: 'OUT' | 'IN'; payload: Record<string, unknown>; createdAt: number }[],
+  status: 'OUT' | 'all'
+): FloatingStockItem[] {
+  if (pending.length === 0) return serverItems;
+
+  const latestBySerial = new Map<string, { action: 'OUT' | 'IN'; payload: Record<string, unknown>; createdAt: number }>();
+  for (const p of pending) {
+    const sn = String(p.payload.serial_number ?? '');
+    if (!sn) continue;
+    const existing = latestBySerial.get(sn);
+    if (!existing || p.createdAt > existing.createdAt) latestBySerial.set(sn, p);
+  }
+
+  let items = serverItems.filter((item) => {
+    const pendingForSerial = latestBySerial.get(item.serial_number);
+    return !(pendingForSerial && pendingForSerial.action === 'IN');
+  });
+
+  for (const [serial, p] of latestBySerial) {
+    if (p.action !== 'OUT') continue;
+    if (items.some((i) => i.serial_number === serial)) continue;
+    items.push({
+      id: -1,
+      serial_number: serial,
+      promoter_id: (p.payload.promoter_id as string) ?? null,
+      punched_out_at: new Date(p.createdAt).toISOString(),
+      notes: (p.payload.notes as string) ?? null,
+      status: 'OUT',
+      hours_out: Math.round((Date.now() - p.createdAt) / 36_000) / 100,
+      pendingSync: true,
+    });
+  }
+
+  if (status !== 'all') items = items.filter((i) => i.status === status);
+  return items;
+}
+
+export async function listFloatingStock(storeId: number, status: 'OUT' | 'all' = 'OUT'): Promise<FloatingStockItem[]> {
+  const pending = await offlineListPendingFloatingStockEvents();
+
+  try {
+    const url = new URL(getApiUrl('/api/v1/pos/floating-stock'));
+    url.searchParams.set('store_id', String(storeId));
+    url.searchParams.set('status', 'all');
+    const res = await fetch(url.toString(), { headers: getHeaders() });
+    const body = (await parseJsonBody(res)) as { success?: boolean; message?: string; data?: FloatingStockItem[] };
+    if (!res.ok || !body.data) throw new Error(body.message ?? 'Failed to load floating stock.');
+    return applyPendingFloatingStockEvents(body.data, pending, status);
+  } catch (err) {
+    if (!isLikelyNetworkFailure(err)) throw err;
+    return applyPendingFloatingStockEvents([], pending, status);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Warranty lookup
+// ---------------------------------------------------------------------------
+
+export async function searchWarranties(q: string): Promise<WarrantyRecord[]> {
+  const url = new URL(getApiUrl('/api/v1/pos/warranties'));
+  url.searchParams.set('q', q);
+  const res = await fetch(url.toString(), { headers: getHeaders() });
+  const body = await parseJsonBody(res);
+  if (!res.ok) throwForFailedResponse(res.status, body.message ?? 'Lookup failed');
+  return body?.data?.warranties ?? [];
 }

@@ -1,16 +1,20 @@
 /**
  * Shift open/close wizard — ported from the desktop's ShiftModal.tsx core
- * (info -> cash-count -> pending-close), scope-cut for this phase: the
- * desktop's x-report/reading-report steps and all printing are dropped (the
- * plan doc puts a polished ZReport component in Phase 4 and printer setup in
- * Phase 5); a successful close instead routes to a plain-text summary step
- * here.
+ * (info -> cash-count -> pending-close/summary). The desktop's
+ * x-report/reading-report steps are still not built (not requested by any
+ * phase's checklist so far). The just-closed shift's Z-report renders via
+ * the real ZReport component (Phase 4) and prints ungated, matching the
+ * desktop; reprinting the *previous* shift's report goes through
+ * ReprintGateControl, also matching the desktop exactly.
  */
 import { useState, type ReactNode } from 'react';
-import { ActivityIndicator, Modal, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Modal, ScrollView, Text, TextInput, View } from 'react-native';
 import type { EodReport, PosShiftInfo } from '../types';
 import { formatCurrency } from '../utils/currency';
+import { printZReport } from '../services/printing';
 import { Button } from './Button';
+import { ReprintGateControl } from './ReprintGateControl';
+import { ZReport } from './ZReport';
 
 type Step = 'info' | 'cash-count' | 'pending-close' | 'summary';
 
@@ -18,12 +22,15 @@ interface ShiftModalProps {
   visible: boolean;
   currentShift: PosShiftInfo | null;
   loading: boolean;
+  lastEodReport?: EodReport | null;
+  /** Shift id backing lastEodReport — required to gate its reprint. Null if a report exists but its shift id wasn't captured, in which case reprint is unavailable rather than assumed free. */
+  lastEodShiftId?: number | null;
   onOpen: (openingCash: number) => Promise<void>;
   onClose: (closingCash: number) => Promise<EodReport | null>;
   onDismiss: () => void;
 }
 
-export function ShiftModal({ visible, currentShift, loading, onOpen, onClose, onDismiss }: ShiftModalProps) {
+export function ShiftModal({ visible, currentShift, loading, lastEodReport, lastEodShiftId, onOpen, onClose, onDismiss }: ShiftModalProps) {
   const [step, setStep] = useState<Step>('info');
   const [openingCash, setOpeningCash] = useState('');
   const [openingCashError, setOpeningCashError] = useState<string | null>(null);
@@ -31,6 +38,7 @@ export function ShiftModal({ visible, currentShift, loading, onOpen, onClose, on
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [eodReport, setEodReport] = useState<EodReport | null>(null);
+  const [printing, setPrinting] = useState(false);
 
   // Reset all internal state whenever the modal transitions to visible —
   // done during render (React's recommended way to adjust state on a prop
@@ -104,6 +112,18 @@ export function ShiftModal({ visible, currentShift, loading, onOpen, onClose, on
     }
   };
 
+  const handlePrintZReport = async () => {
+    if (!eodReport) return;
+    setPrinting(true);
+    try {
+      await printZReport(eodReport);
+    } catch {
+      // best-effort — the report is still shown on screen either way
+    } finally {
+      setPrinting(false);
+    }
+  };
+
   let body: ReactNode;
   if (loading) {
     body = <ActivityIndicator size="large" color="#111827" />;
@@ -111,20 +131,12 @@ export function ShiftModal({ visible, currentShift, loading, onOpen, onClose, on
     body = (
       <>
         <Text className="text-lg font-bold text-gray-900">Shift Closed</Text>
-        <View className="gap-1">
-          <Text className="text-sm text-gray-600">Z-Number: {eodReport.z_number}</Text>
-          <Text className="text-sm text-gray-600">Gross sales: {formatCurrency(eodReport.gross_total)}</Text>
-          <Text className="text-sm text-gray-600">Net sales: {formatCurrency(eodReport.net_sales)}</Text>
-          <Text className="text-sm text-gray-600">Expected cash: {formatCurrency(eodReport.expected_cash)}</Text>
-          <Text className="text-sm text-gray-600">Declared cash: {formatCurrency(eodReport.closing_cash ?? 0)}</Text>
-          {eodReport.cash_difference != null && (
-            <Text className={`text-sm font-medium ${eodReport.cash_difference >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-              {eodReport.cash_difference >= 0
-                ? `▲ Overage: ${formatCurrency(eodReport.cash_difference)}`
-                : `▼ Short: ${formatCurrency(Math.abs(eodReport.cash_difference))}`}
-            </Text>
-          )}
-        </View>
+        <ScrollView className="max-h-96">
+          <ZReport report={eodReport} />
+        </ScrollView>
+        <Button variant="outline" onPress={handlePrintZReport} loading={printing}>
+          Print / Share
+        </Button>
         <Button onPress={onDismiss}>Done</Button>
       </>
     );
@@ -187,6 +199,9 @@ export function ShiftModal({ visible, currentShift, loading, onOpen, onClose, on
         <Button onPress={handleOpenShift} loading={submitting}>
           Open Shift
         </Button>
+        {lastEodReport && lastEodShiftId != null && (
+          <ReprintGateControl type="zreport" targetId={lastEodShiftId} onDoPrint={() => void printZReport(lastEodReport)} fullWidth />
+        )}
         <Button variant="outline" onPress={onDismiss}>
           Cancel
         </Button>
@@ -219,6 +234,9 @@ export function ShiftModal({ visible, currentShift, loading, onOpen, onClose, on
         <Text className="text-sm text-gray-600">Opened: {new Date(currentShift.opened_at).toLocaleString()}</Text>
         <Text className="text-sm text-gray-600">Opening cash: {formatCurrency(currentShift.opening_cash)}</Text>
         <Button onPress={() => setStep('cash-count')}>Close Shift</Button>
+        {lastEodReport && lastEodShiftId != null && (
+          <ReprintGateControl type="zreport" targetId={lastEodShiftId} onDoPrint={() => void printZReport(lastEodReport)} fullWidth />
+        )}
         <Button variant="outline" onPress={onDismiss}>
           Cancel
         </Button>

@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { ActivityIndicator, FlatList, Modal, Pressable, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, BackHandler, DevSettings, FlatList, Modal, Pressable, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthContext } from '../../src/contexts/AuthContext';
 import { useCatalogContext } from '../../src/contexts/CatalogContext';
 import { useCartContext } from '../../src/contexts/CartContext';
 import { useScanHandler } from '../../src/hooks/useScanHandler';
+import { useSalesHistory } from '../../src/hooks/useSalesHistory';
+import { getSaleById, voidPosSale, recordCashMovement, getSalesSummary } from '../../src/api/pos';
 import { getDefaultStoreId } from '../../src/services/terminalConfig';
 import { Button } from '../../src/components/Button';
 import { ProductFilter, type ViewMode } from '../../src/components/ProductFilter';
@@ -15,12 +17,58 @@ import { Cart } from '../../src/components/Cart';
 import { CheckoutModal } from '../../src/components/CheckoutModal';
 import { SerialScanModal } from '../../src/components/SerialScanModal';
 import { BarcodeScannerModal } from '../../src/components/BarcodeScannerModal';
-import { HeldCartsModal } from '../../src/components/HeldCartsModal';
+import { RetrieveModal } from '../../src/components/RetrieveModal';
+import { DiscountModal } from '../../src/components/DiscountModal';
+import { DiscountManagerModal } from '../../src/components/DiscountManagerModal';
+import { SalesHistoryModal } from '../../src/components/SalesHistoryModal';
+import { VoidConfirmModal } from '../../src/components/VoidConfirmModal';
+import { RefundModal } from '../../src/components/RefundModal';
 import { Receipt } from '../../src/components/Receipt';
-import type { CheckoutTenderHint, Product, ReceiptData } from '../../src/types';
+import { UserMenu } from '../../src/components/UserMenu';
+import { SettingsModal } from '../../src/components/SettingsModal';
+import { CashMovementModal } from '../../src/components/CashMovementModal';
+import { FloatingStockModal } from '../../src/components/FloatingStockModal';
+import { SalesSummaryModal } from '../../src/components/SalesSummaryModal';
+import { WarrantyLookupModal } from '../../src/components/WarrantyLookupModal';
+import { HelpModal } from '../../src/components/HelpModal';
+import { PowerActionModal, type PowerAction } from '../../src/components/PowerActionModal';
+import type { CheckoutTenderHint, PosSaleDetail, Product, ReceiptData, TransactionDiscount } from '../../src/types';
 
 const STORE_ID = getDefaultStoreId();
 const WIDE_LAYOUT_MIN_WIDTH = 700;
+const MANAGER_ROLES = ['Manager', 'OIC', 'Admin', 'Super Admin'];
+
+/** Shared by reprint-from-history and the post-void auto-receipt. */
+function buildReprintReceiptData(sale: PosSaleDetail, terminalId: string): ReceiptData {
+  const payments =
+    sale.payments && sale.payments.length > 0
+      ? sale.payments.map((p) => ({ method: p.method, label: p.method, amount: p.amount, referenceNumber: p.reference_number ?? undefined }))
+      : undefined;
+  const vatableSales = sale.amount > 0 ? sale.amount / 1.12 : 0;
+  const vatAmount = sale.amount > 0 ? sale.amount - vatableSales : 0;
+  return {
+    id: sale.transac,
+    receiptNumber: sale.receipt,
+    date: sale.trandate ?? '',
+    time: '',
+    storeName: sale.store_name ?? '',
+    storeLocation: sale.store_location ?? '',
+    storeTin: sale.store_tin ?? undefined,
+    storeBirAccreditation: sale.store_bir ?? undefined,
+    cashierName: sale.cashier_name ?? 'Cashier',
+    terminalId,
+    receiptHeader: sale.voided_at ? '*** VOIDED — REPRINT ***' : '*** REPRINT ***',
+    items: sale.items.map((item) => ({ name: item.name, quantity: item.quantity, unitPrice: item.price, lineTotal: item.price * item.quantity, serialNumbers: item.serials })),
+    subtotal: sale.amount - sale.discamt,
+    discountAmount: sale.discamt > 0 ? sale.discamt : undefined,
+    paymentMethod: payments && payments.length > 1 ? 'split' : sale.tender_type ?? 'cash',
+    amountTendered: payments && payments.length === 1 ? payments[0].amount : undefined,
+    payments,
+    vatableSales,
+    vatAmount,
+    total: sale.amount,
+  };
+}
 
 export default function PosHomeScreen() {
   const { currentUser, loggedInOffline, handleLogout } = useAuthContext();
@@ -44,6 +92,34 @@ export default function PosHomeScreen() {
   const [serialProduct, setSerialProduct] = useState<Product | null>(null);
   const [serialQuantity, setSerialQuantity] = useState(1);
   const [existingSerials, setExistingSerials] = useState<string[]>([]);
+
+  const [showDiscountModal, setShowDiscountModal] = useState(false);
+  const [showDiscountManager, setShowDiscountManager] = useState(false);
+  const [discountManagerId, setDiscountManagerId] = useState<string | null>(null);
+
+  const [showSalesHistory, setShowSalesHistory] = useState(false);
+  const [voidTarget, setVoidTarget] = useState<{ id: number; receipt: string } | null>(null);
+  const [voidReason, setVoidReason] = useState<string | null>(null);
+  const [showVoidAuth, setShowVoidAuth] = useState(false);
+  const [voiding, setVoiding] = useState(false);
+  const [voidError, setVoidError] = useState<string | null>(null);
+
+  const [showRefundModal, setShowRefundModal] = useState(false);
+  const [refundPreselectedSaleId, setRefundPreselectedSaleId] = useState<number | null>(null);
+
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showCashMovement, setShowCashMovement] = useState(false);
+  const [showFloatingStock, setShowFloatingStock] = useState(false);
+  const [showSalesSummary, setShowSalesSummary] = useState(false);
+  const [showWarrantyLookup, setShowWarrantyLookup] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [powerAction, setPowerAction] = useState<PowerAction | null>(null);
+  const [powerActionBusy, setPowerActionBusy] = useState(false);
+
+  const isCurrentUserManagerOrOIC = !!currentUser?.roles?.some((r) => MANAGER_ROLES.includes(r));
+
+  const salesHistory = useSalesHistory({ storeId: STORE_ID, register: catalog.currentShift?.register ?? '' });
 
   const handleScanSerial = (product: Product, quantity: number = 1) => {
     if (!product.isSerialized) {
@@ -95,8 +171,98 @@ export default function PosHomeScreen() {
 
   const handleCheckoutSuccess = (receipt: ReceiptData) => {
     cart.clearCart();
+    setDiscountManagerId(null);
     setShowCheckout(false);
     setReceiptData(receipt);
+  };
+
+  const handleDiscountClick = () => {
+    if (cart.discount) setShowDiscountModal(true);
+    else setShowDiscountManager(true);
+  };
+
+  const handleDiscountApply = (discount: TransactionDiscount) => {
+    setShowDiscountModal(false);
+    if (discount === null) {
+      cart.setDiscount(null);
+      setDiscountManagerId(null);
+      return;
+    }
+    setShowDiscountManager(true);
+  };
+
+  const handleDiscountApproved = (_managerToken?: string, managerId?: string, discount?: TransactionDiscount) => {
+    setDiscountManagerId(managerId ?? null);
+    if (discount) cart.setDiscount(discount);
+    setShowDiscountManager(false);
+  };
+
+  const handleReprintSale = async (saleId: number) => {
+    try {
+      const sale = await getSaleById(saleId);
+      setReceiptData(buildReprintReceiptData(sale, catalog.currentShift?.register ?? ''));
+    } catch (e) {
+      setVoidError(e instanceof Error ? e.message : 'Failed to load sale for reprint.');
+    }
+  };
+
+  const handleVoidSaleRequest = (saleId: number, receiptNumber: string) => {
+    setVoidTarget({ id: saleId, receipt: receiptNumber });
+    setVoidError(null);
+  };
+
+  const handleConfirmVoid = (reason: string) => {
+    setVoidReason(reason);
+    setShowVoidAuth(true);
+  };
+
+  // No live token-swap for the approving manager — approvedByManagerId rides
+  // along as a trusted data field on the void request (matching how
+  // discount_manager_id is trusted on the sale payload), avoiding a risky
+  // temporary swap of the cashier's own session token in this UI layer.
+  const handleVoidApproved = async (_managerToken?: string, managerId?: string) => {
+    setShowVoidAuth(false);
+    if (!voidTarget || !catalog.currentShift || !currentUser) return;
+    setVoiding(true);
+    setVoidError(null);
+    try {
+      const result = await voidPosSale(voidTarget.id, voidReason, {
+        storeId: STORE_ID,
+        register: catalog.currentShift.register,
+        cashierId: currentUser.id,
+        approvedByManagerId: managerId,
+      });
+      setVoidTarget(null);
+      setVoidReason(null);
+      await salesHistory.reload();
+      catalog.retryProducts();
+      if (!result.queued) {
+        await handleReprintSale(voidTarget.id);
+      }
+    } catch (e) {
+      setVoidError(e instanceof Error ? e.message : 'Failed to void sale.');
+    } finally {
+      setVoiding(false);
+    }
+  };
+
+  const handleRefundSaleRequest = (saleId: number) => {
+    setShowSalesHistory(false);
+    setRefundPreselectedSaleId(saleId);
+    setShowRefundModal(true);
+  };
+
+  const handlePowerActionConfirm = () => {
+    if (!powerAction) return;
+    setPowerActionBusy(true);
+    if (powerAction === 'restart') {
+      // No expo-updates configured yet (that's an EAS Update / Phase 6 concern) —
+      // DevSettings.reload() is RN's own bridge-level "reload the JS bundle"
+      // call, which works without it in both Expo Go and a built app.
+      DevSettings.reload();
+    } else {
+      BackHandler.exitApp();
+    }
   };
 
   const shiftModal = (
@@ -104,6 +270,8 @@ export default function PosHomeScreen() {
       visible={showShiftModal}
       currentShift={catalog.currentShift}
       loading={catalog.shiftLoading}
+      lastEodReport={catalog.lastEodReport}
+      lastEodShiftId={catalog.lastEodShiftId}
       onOpen={(cash) => catalog.openShift(cash)}
       onClose={(cash) => catalog.closeShift(cash)}
       onDismiss={() => setShowShiftModal(false)}
@@ -150,6 +318,7 @@ export default function PosHomeScreen() {
         if (cart.heldCarts.length === 1) cart.retrieveCart(cart.heldCarts[0].id);
         else if (cart.heldCarts.length > 1) setShowHeldCarts(true);
       }}
+      onDiscountClick={handleDiscountClick}
       heldCount={cart.heldCarts.length}
       maxHeldCarts={cart.maxHeldCarts}
       subtotal={cart.subtotal}
@@ -174,11 +343,20 @@ export default function PosHomeScreen() {
                   {`Cart (${cart.items.length})`}
                 </Button>
               )}
+              <Button
+                variant="outline"
+                onPress={() => {
+                  setShowSalesHistory(true);
+                  void salesHistory.reload();
+                }}
+              >
+                History
+              </Button>
               <Button variant="outline" onPress={() => setShowShiftModal(true)}>
                 Shift
               </Button>
-              <Button variant="outline" onPress={() => void handleLogout()}>
-                Sign Out
+              <Button variant="outline" onPress={() => setShowUserMenu(true)}>
+                Menu
               </Button>
             </View>
           </View>
@@ -272,12 +450,98 @@ export default function PosHomeScreen() {
         subtotal={cart.subtotal}
         discountAmount={cart.discountAmount}
         discount={cart.discount}
+        discountManagerId={discountManagerId}
         total={cart.total}
         storeId={STORE_ID}
         register={catalog.currentShift.register}
         cashierName={currentUser?.name ?? 'Cashier'}
         onClose={() => setShowCheckout(false)}
         onSuccess={handleCheckoutSuccess}
+      />
+
+      <DiscountModal
+        isOpen={showDiscountModal}
+        subtotal={cart.subtotal}
+        currentDiscount={cart.discount}
+        onApply={handleDiscountApply}
+        onClose={() => setShowDiscountModal(false)}
+      />
+
+      <DiscountManagerModal
+        isOpen={showDiscountManager}
+        withDiscountSelection
+        allowOfflineApproval
+        enableRemoteApproval
+        bypassApproval={isCurrentUserManagerOrOIC}
+        bypassUserId={currentUser?.id}
+        storeId={STORE_ID}
+        subtotal={cart.subtotal}
+        onApprove={handleDiscountApproved}
+        onCancel={() => setShowDiscountManager(false)}
+      />
+
+      <VoidConfirmModal
+        isOpen={voidTarget !== null && !showVoidAuth && !voiding}
+        receiptNumber={voidTarget?.receipt ?? ''}
+        voiding={voiding}
+        error={voidError}
+        onConfirm={handleConfirmVoid}
+        onClose={() => {
+          if (!voiding) {
+            setVoidError(null);
+            setVoidTarget(null);
+          }
+        }}
+      />
+
+      {/* Void approval — no bypassUserId: the void endpoint doesn't need or accept one for its own-role bypass. */}
+      <DiscountManagerModal
+        isOpen={showVoidAuth}
+        allowOfflineApproval
+        bypassApproval={isCurrentUserManagerOrOIC}
+        onApprove={handleVoidApproved}
+        onCancel={() => {
+          setShowVoidAuth(false);
+          setVoidTarget(null);
+        }}
+      />
+
+      <SalesHistoryModal
+        isOpen={showSalesHistory}
+        sales={salesHistory.sales}
+        loading={salesHistory.loading}
+        error={salesHistory.error}
+        dateFrom={salesHistory.dateFrom}
+        dateTo={salesHistory.dateTo}
+        onDateFromChange={salesHistory.setDateFrom}
+        onDateToChange={salesHistory.setDateTo}
+        onReload={() => void salesHistory.reload()}
+        onClose={() => setShowSalesHistory(false)}
+        onVoidSale={handleVoidSaleRequest}
+        onReprintSale={(saleId) => void handleReprintSale(saleId)}
+        onRefundSale={handleRefundSaleRequest}
+        isOfflineVoidQualified={salesHistory.isOfflineVoidQualified}
+        isOnline={catalog.isOnline}
+        currentShiftOpenedAt={catalog.currentShift?.opened_at}
+        pendingLocalSaleIds={salesHistory.pendingLocalSaleIds}
+      />
+
+      <RefundModal
+        isOpen={showRefundModal}
+        storeId={STORE_ID}
+        register={catalog.currentShift.register}
+        preSelectedSaleId={refundPreselectedSaleId}
+        cashierName={currentUser?.name ?? 'Cashier'}
+        isCurrentUserManagerOrOIC={isCurrentUserManagerOrOIC}
+        onClose={() => {
+          setShowRefundModal(false);
+          setRefundPreselectedSaleId(null);
+        }}
+        onSuccess={(receipt) => {
+          setShowRefundModal(false);
+          setRefundPreselectedSaleId(null);
+          setReceiptData(receipt);
+        }}
       />
 
       <SerialScanModal
@@ -299,17 +563,74 @@ export default function PosHomeScreen() {
         onClose={() => setShowCamera(false)}
       />
 
-      <HeldCartsModal
+      <RetrieveModal
         isOpen={showHeldCarts}
         heldCarts={cart.heldCarts}
-        onSelect={(id) => {
-          cart.retrieveCart(id);
+        onRetrieve={(held) => {
+          cart.retrieveCart(held.id);
           setShowHeldCarts(false);
         }}
+        onRemove={(held) => cart.removeHeldCart(held.id)}
         onClose={() => setShowHeldCarts(false)}
       />
 
       {receiptData && <Receipt data={receiptData} onDone={() => setReceiptData(null)} />}
+
+      {currentUser && (
+        <UserMenu
+          isOpen={showUserMenu}
+          currentUser={currentUser}
+          hasOpenShift={!!catalog.currentShift}
+          onClose={() => setShowUserMenu(false)}
+          onSalesHistory={() => {
+            setShowSalesHistory(true);
+            void salesHistory.reload();
+          }}
+          onSettings={() => setShowSettings(true)}
+          onShift={() => setShowShiftModal(true)}
+          onFloatingStock={() => setShowFloatingStock(true)}
+          onCashMovement={() => setShowCashMovement(true)}
+          onSalesSummary={() => setShowSalesSummary(true)}
+          onWarrantyLookup={() => setShowWarrantyLookup(true)}
+          onHelp={() => setShowHelp(true)}
+          onLogout={() => void handleLogout()}
+          onRestartApp={() => setPowerAction('restart')}
+          onExitApp={() => setPowerAction('exit')}
+        />
+      )}
+
+      <SettingsModal isOpen={showSettings} currentUser={currentUser} onClose={() => setShowSettings(false)} onApiBaseUrlChanged={() => void handleLogout()} />
+
+      <CashMovementModal
+        isOpen={showCashMovement}
+        storeId={STORE_ID}
+        register={catalog.currentShift?.register ?? ''}
+        onClose={() => setShowCashMovement(false)}
+        onRecord={async (params) => {
+          if (!currentUser) throw new Error('No authenticated user');
+          const result = await recordCashMovement({ ...params, cashierId: currentUser.id });
+          return { queued: !!result.queued };
+        }}
+      />
+
+      <FloatingStockModal isOpen={showFloatingStock} storeId={STORE_ID} onClose={() => setShowFloatingStock(false)} />
+
+      <SalesSummaryModal isOpen={showSalesSummary} storeId={STORE_ID} onClose={() => setShowSalesSummary(false)} onLoad={(params) => getSalesSummary(params)} />
+
+      <WarrantyLookupModal isOpen={showWarrantyLookup} onClose={() => setShowWarrantyLookup(false)} />
+
+      <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} currentUser={currentUser} />
+
+      <PowerActionModal
+        action={powerAction}
+        hasOpenShift={!!catalog.currentShift}
+        busy={powerActionBusy}
+        onConfirm={handlePowerActionConfirm}
+        onClose={() => {
+          setPowerActionBusy(false);
+          setPowerAction(null);
+        }}
+      />
     </SafeAreaView>
   );
 }

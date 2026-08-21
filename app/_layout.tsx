@@ -1,15 +1,21 @@
 import '../global.css';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Stack } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
+import { useFonts } from 'expo-font';
 import { initApiConfig } from '../src/api/config';
+import { initTotpSecrets } from '../src/services/authService';
 import { AuthProvider, useAuthContext } from '../src/contexts/AuthContext';
 import { CatalogProvider } from '../src/contexts/CatalogContext';
 import { CartProvider } from '../src/contexts/CartContext';
 import { registerBackgroundSync } from '../src/services/backgroundSync';
+import { HONOR_BRAND_FONTS } from '../src/fonts';
+
+void SplashScreen.preventAutoHideAsync();
 
 function RootNavigator() {
   const { isAuthenticated, authChecking } = useAuthContext();
@@ -36,29 +42,31 @@ function RootNavigator() {
 
 export default function RootLayout() {
   const [configReady, setConfigReady] = useState(false);
+  const [fontsLoaded, fontError] = useFonts(HONOR_BRAND_FONTS);
+  const ready = configReady && (fontsLoaded || !!fontError);
 
   useEffect(() => {
-    void initApiConfig().finally(() => setConfigReady(true));
+    void Promise.all([initApiConfig(), initTotpSecrets()]).finally(() => setConfigReady(true));
     void registerBackgroundSync();
   }, []);
 
+  const onLayoutRootView = useCallback(() => {
+    if (ready) void SplashScreen.hideAsync();
+  }, [ready]);
+
+  if (!ready) return null;
+
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView style={{ flex: 1 }} onLayout={onLayoutRootView}>
       <SafeAreaProvider>
         <StatusBar style="auto" />
-        {configReady ? (
-          <AuthProvider>
-            <CatalogProvider>
-              <CartProvider>
-                <RootNavigator />
-              </CartProvider>
-            </CatalogProvider>
-          </AuthProvider>
-        ) : (
-          <View className="flex-1 items-center justify-center bg-white">
-            <ActivityIndicator size="large" color="#111827" />
-          </View>
-        )}
+        <AuthProvider>
+          <CatalogProvider>
+            <CartProvider>
+              <RootNavigator />
+            </CartProvider>
+          </CatalogProvider>
+        </AuthProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

@@ -2,10 +2,6 @@
  * Cart panel — ported from the desktop's Cart.tsx. Pure presentational: all
  * totals (subtotal/discountAmount/total) are computed by useCart and passed
  * in as props, matching the desktop's design exactly.
- *
- * Discount entry is Phase 4 scope (see the Phase 3 plan's finding 5) — the
- * discount button renders disabled with a "Coming in Phase 4" note instead
- * of the desktop's toggle-to-edit behavior.
  */
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import type { CartItem, CheckoutTenderHint, TransactionDiscount } from '../types';
@@ -19,6 +15,7 @@ interface CartProps {
   onCheckout: (preselectedHint?: CheckoutTenderHint) => void;
   onHold: () => void;
   onRetrieveClick: () => void;
+  onDiscountClick: () => void;
   heldCount: number;
   maxHeldCarts: number;
   subtotal: number;
@@ -85,6 +82,7 @@ export function Cart({
   onCheckout,
   onHold,
   onRetrieveClick,
+  onDiscountClick,
   heldCount,
   maxHeldCarts,
   subtotal,
@@ -132,8 +130,8 @@ export function Cart({
         </View>
       </View>
 
-      <Pressable disabled className="items-center rounded-md bg-gray-100 px-3 py-2 opacity-60">
-        <Text className="text-xs font-medium text-gray-500">Discounts — coming in Phase 4</Text>
+      <Pressable onPress={onDiscountClick} className="items-center rounded-md bg-gray-100 px-3 py-2 active:bg-gray-200">
+        <Text className="text-xs font-medium text-gray-700">{discount != null ? 'Change discount' : '+ Add discount'}</Text>
       </Pressable>
 
       <Button onPress={() => onCheckout()}>Checkout</Button>

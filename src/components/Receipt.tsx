@@ -4,11 +4,12 @@
  * scope). The `isRefund` branch is ported for shape-completeness — the
  * desktop itself never sets it true either (dormant, unwired upstream).
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, Text, View } from 'react-native';
 import type { ReceiptData } from '../types';
 import { formatCurrency } from '../utils/currency';
 import { printReceipt } from '../services/printing';
+import { getPrinterPreferences } from '../services/printerConfig';
 import { Button } from './Button';
 
 interface ReceiptProps {
@@ -31,6 +32,17 @@ export function Receipt({ data, onDone }: ReceiptProps) {
       setPrinting(false);
     }
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    void getPrinterPreferences().then((prefs) => {
+      if (!cancelled && prefs.autoPrint) void handlePrint();
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <Modal visible transparent animationType="fade">

@@ -3,6 +3,7 @@
  * Ported from the desktop's src/ui/services/authService.ts — window.electron offline-auth
  * calls are replaced by offlineAuthStore (expo-secure-store instead of an Electron main process).
  */
+import * as SecureStore from 'expo-secure-store';
 import { apiLogin, apiGetUser, apiLogout, getAuthToken, setAuthToken, removeAuthToken } from './apiService';
 import {
   saveOfflineAuthCredentials,
@@ -32,8 +33,28 @@ const getApiUserId = (user: any): string | null => {
 const looksLikeConnectivityError = (message: string): boolean =>
   /cannot connect|network error|failed to fetch|network request failed|server is running|fetch/i.test(message);
 
-// Store TOTP secrets locally (in production, this could be stored securely)
+// Store TOTP secrets locally, keyed by email — same in-memory Map the desktop
+// uses (it never persists these to a backend; see the setup screen's dormant
+// GoogleAuthenticatorSetup.tsx upstream). Backed by SecureStore here so
+// "enabling" 2FA survives an app restart instead of silently resetting —
+// initTotpSecrets() must be awaited once at startup (see app/_layout.tsx).
 const totpSecrets: Map<string, string> = new Map();
+const TOTP_SECRETS_KEY = 'pos_totp_secrets';
+
+export async function initTotpSecrets(): Promise<void> {
+  try {
+    const raw = await SecureStore.getItemAsync(TOTP_SECRETS_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    for (const [email, secret] of Object.entries(parsed)) totpSecrets.set(email, secret);
+  } catch {
+    // ignore corrupt/missing cache — 2FA setup just needs to be redone
+  }
+}
+
+function persistTotpSecrets(): void {
+  void SecureStore.setItemAsync(TOTP_SECRETS_KEY, JSON.stringify(Object.fromEntries(totpSecrets)));
+}
 
 /**
  * Validate admin credentials against pos-react API
@@ -271,6 +292,34 @@ async function verifyManagerCredentialsOffline(
   return { ok: true, name: profile.name, userId: profile.userId, offline: true };
 }
 
+/** Validate Super Admin credentials without switching the current logged-in session. */
+export async function verifySuperAdminCredentials(email: string, password: string): Promise<{ ok: boolean; message?: string }> {
+  const previousToken = getAuthToken();
+
+  try {
+    const loginRes = await apiLogin(email, password);
+    if (!loginRes.success || !loginRes.data?.token) {
+      return { ok: false, message: loginRes.message || 'Invalid credentials.' };
+    }
+
+    const meRes = await apiGetUser();
+    const roles = meRes.success && meRes.data ? (meRes.data.roles ?? []) : [];
+    if (!roles.includes('Super Admin')) {
+      return { ok: false, message: 'Super Admin account required.' };
+    }
+
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : 'Failed to verify Super Admin credentials.' };
+  } finally {
+    if (previousToken) {
+      setAuthToken(previousToken);
+    } else {
+      removeAuthToken();
+    }
+  }
+}
+
 export function isValidEmail(email: string): boolean {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return emailRegex.test(email.trim());
@@ -278,6 +327,13 @@ export function isValidEmail(email: string): boolean {
 
 export function setTOTPSecret(email: string, secret: string): void {
   totpSecrets.set(email.toLowerCase().trim(), secret);
+  persistTotpSecrets();
+}
+
+/** Turns off Google Authenticator for this account on this device. */
+export function clearTOTPSecret(email: string): void {
+  totpSecrets.delete(email.toLowerCase().trim());
+  persistTotpSecrets();
 }
 
 export function hasTOTPEnabled(email: string): boolean {
@@ -298,6 +354,10 @@ export async function logout(): Promise<void> {
     console.error('Logout error:', error);
   } finally {
     removeAuthToken();
-    totpSecrets.clear();
+    // Not clearing totpSecrets here (desktop does): entries are keyed by email
+    // and durably persisted (see initTotpSecrets), so wiping the in-memory
+    // cache on every logout would just force the next login for the SAME user
+    // in this same app session to redo 2FA setup, with no privacy benefit —
+    // a different user's login only ever reads their own email's entry.
   }
 }

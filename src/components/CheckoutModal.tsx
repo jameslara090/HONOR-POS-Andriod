@@ -181,6 +181,8 @@ interface CheckoutModalProps {
   subtotal: number;
   discountAmount: number;
   discount: TransactionDiscount;
+  /** The manager/approver id that authorized the current `discount`, if any (see DiscountManagerModal). */
+  discountManagerId?: string | null;
   total: number;
   storeId: number;
   register: string;
@@ -196,6 +198,7 @@ export function CheckoutModal({
   subtotal,
   discountAmount,
   discount,
+  discountManagerId,
   total,
   storeId,
   register,
@@ -360,6 +363,7 @@ export function CheckoutModal({
         discount_code: discountCode ?? null,
         discount_amt: discountAmount,
         discount_type_id: discount?.discountTypeId ?? null,
+        discount_manager_id: discountManagerId ?? null,
         tender_type: tenderType,
         trantype: 'Retail',
         change_amount: finalChange ?? 0,
