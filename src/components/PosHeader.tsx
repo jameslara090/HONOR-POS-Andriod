@@ -13,6 +13,7 @@ interface PosHeaderProps {
   offline: boolean;
   register: string;
   storeName?: string;
+  businessDate?: string;
   shiftOpenedAt?: string;
   queuedCount?: number;
   printerName?: string | null;
@@ -33,6 +34,7 @@ export function PosHeader({
   offline,
   register,
   storeName = 'SM North EDSA',
+  businessDate,
   shiftOpenedAt,
   queuedCount = 0,
   printerName = 'HPRT TP80',
@@ -57,10 +59,17 @@ export function PosHeader({
         </Cell>
       )}
 
+      {isWide && businessDate && (
+        <Cell>
+          <Text className="font-a-semi text-[11px] tracking-label text-mod-neutral-700">BUSINESS DATE</Text>
+          <Text className="font-a-semi text-[12px] text-mod-ink">{businessDate}</Text>
+        </Cell>
+      )}
+
       <View className="flex-1" />
 
       <Cell>
-        <View className={`h-2 w-2 ${offline ? 'bg-mod-accent' : 'bg-mod-neutral-500'}`} />
+        <View className={`h-2 w-2 ${offline ? 'bg-mod-danger' : 'bg-mod-neutral-500'}`} />
         <Text className="font-a-semi text-[11px] tracking-label text-mod-ink">
           {offline ? `OFFLINE${queuedCount ? ` · ${queuedCount} QUEUED` : ''}` : 'ONLINE'}
         </Text>

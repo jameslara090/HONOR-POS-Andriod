@@ -84,7 +84,7 @@ export const ProductTile = memo(function ProductTile({ product, variant, onAddTo
               <Text className="font-a-semi text-[9px] tracking-label">{badge.label}</Text>
             </View>
             {product.isSerialized ? (
-              <Text className="font-a-semi text-[9px] tracking-label text-mod-accent-700">IMEI REQUIRED</Text>
+              <Text className="font-a-semi text-[9px] tracking-label text-mod-danger-700">IMEI REQUIRED</Text>
             ) : null}
           </View>
         </View>
@@ -117,7 +117,7 @@ export const ProductTile = memo(function ProductTile({ product, variant, onAddTo
       <View className="mt-3 flex-row items-end justify-between">
         <Text className="font-a-display text-[20px] text-mod-ink">{priceLabel}</Text>
         {product.isSerialized ? (
-          <Text className="font-a-semi text-[9px] tracking-label text-mod-accent-700">IMEI REQUIRED</Text>
+          <Text className="font-a-semi text-[9px] tracking-label text-mod-danger-700">IMEI REQUIRED</Text>
         ) : (
           stepper
         )}

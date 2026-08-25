@@ -8,7 +8,7 @@ import { Text, TextInput, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { validateTOTP } from '../services/totpService';
 import { Button } from './Button';
-import { ACCENT } from '../theme';
+import { ACCENT, DANGER } from '../theme';
 
 interface TOTPVerificationProps {
   secret: string;
@@ -110,15 +110,15 @@ export function TOTPVerification({ secret, onVerify, onCancel }: TOTPVerificatio
               maxLength={1}
               editable={!isVerifying}
               className={`h-[68px] flex-1 border-2 bg-white text-center font-a-display text-[26px] text-mod-ink ${
-                error ? 'border-mod-accent' : digit ? 'border-mod-ink' : 'border-mod-neutral-400'
+                error ? 'border-mod-danger' : digit ? 'border-mod-ink' : 'border-mod-neutral-400'
               }`}
             />
           ))}
         </View>
 
         {error ? (
-          <View className="mt-3 border-l-2 border-mod-accent bg-mod-accent-100 px-4 py-3">
-            <Text className="font-a text-[13px] text-mod-accent-800">{error}</Text>
+          <View className="mt-3 border-l-2 border-mod-danger bg-mod-danger-100 px-4 py-3">
+            <Text className="font-a text-[13px] text-mod-danger-800">{error}</Text>
           </View>
         ) : null}
 

@@ -8,7 +8,7 @@ import { ActivityIndicator, Text, TextInput, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { apiCheckUser, apiCheckLockout } from '../services/apiService';
 import { Button } from './Button';
-import { ACCENT, NEUTRAL, PLACEHOLDER } from '../theme';
+import { ACCENT, DANGER, NEUTRAL, PLACEHOLDER } from '../theme';
 
 type IdentifierStatus = 'idle' | 'checking' | 'found' | 'not-found' | 'error';
 
@@ -105,7 +105,7 @@ export function LoginForm({ onLogin, error, lockoutSeconds = 0, attemptsRemainin
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   })();
 
-  const identifierBorderClass = identifierStatus === 'not-found' ? 'border-mod-accent' : 'border-mod-ink';
+  const identifierBorderClass = identifierStatus === 'not-found' ? 'border-mod-danger' : 'border-mod-ink';
 
   return (
     <View className="w-full max-w-[520px] gap-6">
@@ -132,17 +132,17 @@ export function LoginForm({ onLogin, error, lockoutSeconds = 0, attemptsRemainin
               <Text className="font-a-semi text-[10px] tracking-label text-mod-accent-700">FOUND</Text>
             </View>
           )}
-          {identifierStatus === 'not-found' && <Feather name="x" size={18} color={ACCENT} />}
+          {identifierStatus === 'not-found' && <Feather name="x" size={18} color={DANGER} />}
         </View>
-        {formatError ? <Text className="mt-1.5 font-a text-[13px] text-mod-accent-700">{formatError}</Text> : null}
+        {formatError ? <Text className="mt-1.5 font-a text-[13px] text-mod-danger-700">{formatError}</Text> : null}
         {!formatError && identifierStatus === 'not-found' && (
-          <Text className="mt-1.5 font-a text-[13px] text-mod-accent-700">No account found with that User ID or email.</Text>
+          <Text className="mt-1.5 font-a text-[13px] text-mod-danger-700">No account found with that User ID or email.</Text>
         )}
       </View>
 
       <View>
         <Text className="mb-2 font-a-semi text-[11px] tracking-label text-mod-ink">PASSWORD</Text>
-        <View className={`h-[56px] flex-row items-center gap-3 border-2 bg-white px-3 ${error && !isLocked ? 'border-mod-accent' : 'border-mod-ink'}`}>
+        <View className={`h-[56px] flex-row items-center gap-3 border-2 bg-white px-3 ${error && !isLocked ? 'border-mod-danger' : 'border-mod-ink'}`}>
           <Feather name="lock" size={18} color={NEUTRAL[600]} />
           <TextInput
             value={password}
@@ -164,19 +164,19 @@ export function LoginForm({ onLogin, error, lockoutSeconds = 0, attemptsRemainin
       </View>
 
       {isLocked && (
-        <View className="flex-row items-center gap-3 border-l-2 border-mod-accent bg-mod-accent-100 px-4 py-3">
-          <Feather name="lock" size={18} color={ACCENT} />
-          <Text className="flex-1 font-a text-[13px] text-mod-accent-800">
+        <View className="flex-row items-center gap-3 border-l-2 border-mod-danger bg-mod-danger-100 px-4 py-3">
+          <Feather name="lock" size={18} color={DANGER} />
+          <Text className="flex-1 font-a text-[13px] text-mod-danger-800">
             Account temporarily locked. Try again in <Text className="font-a-bold">{lockoutDisplay}</Text>
           </Text>
         </View>
       )}
 
       {!isLocked && error && (
-        <View className="gap-1 border-l-2 border-mod-accent bg-mod-accent-100 px-4 py-3">
-          <Text className="font-a text-[13px] text-mod-accent-800">{error}</Text>
+        <View className="gap-1 border-l-2 border-mod-danger bg-mod-danger-100 px-4 py-3">
+          <Text className="font-a text-[13px] text-mod-danger-800">{error}</Text>
           {attemptsRemaining !== null && attemptsRemaining > 0 && (
-            <Text className="font-a-semi text-[13px] text-mod-accent-800">
+            <Text className="font-a-semi text-[13px] text-mod-danger-800">
               {attemptsRemaining} attempt{attemptsRemaining !== 1 ? 's' : ''} remaining before lockout.
             </Text>
           )}

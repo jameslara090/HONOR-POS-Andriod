@@ -298,15 +298,17 @@ export default function PosHomeScreen() {
   if (!catalog.currentShift) {
     return (
       <SafeAreaView className="flex-1 bg-mod-bg">
-        <View className="flex-1 items-center justify-center gap-4 p-6">
-          <Text className="text-xl font-bold text-gray-900">Open a shift to start selling</Text>
-          <Text className="text-center text-gray-500">
-            Every sale on this register needs an open shift. Open one to load the product catalog.
-          </Text>
-          <Button onPress={() => setShowShiftModal(true)}>Open Shift</Button>
-          <Button variant="outline" onPress={() => void handleLogout()}>
-            Sign Out
-          </Button>
+        <View className="flex-1 items-center justify-center p-6">
+          <View className="w-full max-w-sm gap-4 border-2 border-mod-ink bg-white p-6">
+            <Text className="font-a-display text-[17px] tracking-display text-mod-ink">Open a shift to start selling</Text>
+            <Text className="font-a text-[14px] text-mod-neutral-700">
+              Every sale on this register needs an open shift. Open one to load the product catalog.
+            </Text>
+            <Button onPress={() => setShowShiftModal(true)}>Open Shift</Button>
+            <Button variant="outline" onPress={() => void handleLogout()}>
+              Sign Out
+            </Button>
+          </View>
         </View>
         {shiftModal}
       </SafeAreaView>
@@ -344,6 +346,7 @@ export default function PosHomeScreen() {
         offline={loggedInOffline}
         register={catalog.currentShift.register}
         storeName={getDefaultStoreInfo().name}
+        businessDate={catalog.currentShift.opened_at.slice(0, 10)}
         isWide={isWide}
         cartCount={cart.items.length}
         onCart={() => setShowMobileCart(true)}

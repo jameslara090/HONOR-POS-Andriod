@@ -19,21 +19,21 @@ describe('getOnHandBadge', () => {
     expect(badge.className).toBe('bg-mod-neutral-200 text-mod-neutral-800');
   });
 
-  it('shows the count and accent tint when stock is low (1-9)', () => {
+  it('shows the count and danger tint when stock is low (1-9)', () => {
     const badge = getOnHandBadge({ stock: 5, hasStockData: true });
     expect(badge.label).toBe('ON HAND 5');
-    expect(badge.className).toBe('bg-mod-accent-200 text-mod-accent-800');
+    expect(badge.className).toBe('bg-mod-danger-200 text-mod-danger-800');
   });
 
-  it('shows the count and accent tint at the exact low boundary (9)', () => {
+  it('shows the count and danger tint at the exact low boundary (9)', () => {
     const badge = getOnHandBadge({ stock: 9, hasStockData: true });
     expect(badge.label).toBe('ON HAND 9');
-    expect(badge.className).toBe('bg-mod-accent-200 text-mod-accent-800');
+    expect(badge.className).toBe('bg-mod-danger-200 text-mod-danger-800');
   });
 
-  it('shows OUT OF STOCK on solid accent when out of stock (0)', () => {
+  it('shows OUT OF STOCK on solid danger when out of stock (0)', () => {
     const badge = getOnHandBadge({ stock: 0, hasStockData: true });
     expect(badge.label).toBe('OUT OF STOCK');
-    expect(badge.className).toBe('bg-mod-accent text-white');
+    expect(badge.className).toBe('bg-mod-danger text-white');
   });
 });

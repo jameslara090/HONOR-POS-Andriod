@@ -176,7 +176,7 @@ export function SalesHistoryModal({
           </Pressable>
         </View>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-2">
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-2 grow-0 shrink-0">
           <View className="flex-row gap-2">
             {(['all', 'sale', 'voided'] as ModeFilter[]).map((m) => (
               <Pressable

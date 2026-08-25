@@ -182,8 +182,8 @@ export function SerialScanModal({ isOpen, product, quantity, storeId, existingSe
   const hasUnacknowledgedWarnings = warnings.some(Boolean) && !ackWarnings;
 
   const stateLabel = (index: number): { text: string; className: string } => {
-    if (errors[index]) return { text: 'CHECK FAILED', className: 'text-mod-accent-700' };
-    if (warnings[index]) return { text: 'WARNING', className: 'text-mod-accent-700' };
+    if (errors[index]) return { text: 'CHECK FAILED', className: 'text-mod-danger-700' };
+    if (warnings[index]) return { text: 'WARNING', className: 'text-mod-danger-700' };
     if (serialNumbers[index]) return { text: 'VALID', className: 'text-mod-neutral-800' };
     return { text: 'WAITING', className: 'text-mod-neutral-600' };
   };
@@ -212,8 +212,8 @@ export function SerialScanModal({ isOpen, product, quantity, storeId, existingSe
               </Text>
             </View>
             {apiError ? (
-              <View className="border-l-2 border-mod-accent bg-mod-accent-100 px-3 py-2">
-                <Text className="font-a-med text-[13px] text-mod-accent-800">{apiError}</Text>
+              <View className="border-l-2 border-mod-danger bg-mod-danger-100 px-3 py-2">
+                <Text className="font-a-med text-[13px] text-mod-danger-800">{apiError}</Text>
               </View>
             ) : null}
           </View>
@@ -240,7 +240,7 @@ export function SerialScanModal({ isOpen, product, quantity, storeId, existingSe
                       returnKeyType={index < quantity - 1 ? 'next' : 'done'}
                       placeholder="Scan or type 15-digit IMEI"
                       placeholderTextColor={PLACEHOLDER}
-                      className={`h-[52px] flex-1 border-2 bg-white px-3 font-a-med text-[17px] text-mod-ink ${errors[index] ? 'border-mod-accent' : 'border-mod-ink'}`}
+                      className={`h-[52px] flex-1 border-2 bg-white px-3 font-a-med text-[17px] text-mod-ink ${errors[index] ? 'border-mod-danger' : 'border-mod-ink'}`}
                     />
                     <Pressable
                       onPress={() => validateOne(index)}
@@ -254,9 +254,9 @@ export function SerialScanModal({ isOpen, product, quantity, storeId, existingSe
                       )}
                     </Pressable>
                   </View>
-                  {errors[index] ? <Text className="mt-1.5 font-a text-[11px] text-mod-accent-700">{errors[index]}</Text> : null}
+                  {errors[index] ? <Text className="mt-1.5 font-a text-[11px] text-mod-danger-700">{errors[index]}</Text> : null}
                   {!errors[index] && warnings[index] ? (
-                    <Text className="mt-1.5 font-a text-[11px] text-mod-accent-700">{warnings[index]}</Text>
+                    <Text className="mt-1.5 font-a text-[11px] text-mod-danger-700">{warnings[index]}</Text>
                   ) : null}
                   {!errors[index] && offlineNotices[index] ? (
                     <Text className="mt-1.5 font-a text-[11px] text-mod-neutral-700">{offlineNotices[index]}</Text>

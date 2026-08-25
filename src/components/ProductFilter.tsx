@@ -62,16 +62,6 @@ export function ProductFilter(props: ProductFilterProps) {
         </View>
 
         <View className="flex-row gap-2">
-          <TextInput
-            value={props.scanValue}
-            onChangeText={props.onScanChange}
-            onSubmitEditing={(e) => props.onScanSubmit(e.nativeEvent.text)}
-            placeholder="356938035643809"
-            placeholderTextColor={PLACEHOLDER}
-            returnKeyType="search"
-            autoCapitalize="none"
-            className={`h-[52px] flex-1 border-2 bg-white px-3 font-a-med text-[17px] text-mod-ink ${props.scanError ? 'border-mod-accent' : 'border-mod-ink'}`}
-          />
           {props.onOpenCamera && (
             <Pressable
               onPress={props.onOpenCamera}
@@ -80,16 +70,25 @@ export function ProductFilter(props: ProductFilterProps) {
               <Feather name="camera" size={20} color={INK} />
             </Pressable>
           )}
+          <TextInput
+            value={props.scanValue}
+            onChangeText={props.onScanChange}
+            onSubmitEditing={(e) => props.onScanSubmit(e.nativeEvent.text)}
+            placeholder="356938035643809"
+            placeholderTextColor={PLACEHOLDER}
+            returnKeyType="search"
+            autoCapitalize="none"
+            className={`h-[52px] flex-1 border-2 bg-white px-3 font-a-med text-[17px] text-mod-ink ${props.scanError ? 'border-mod-danger' : 'border-mod-ink'}`}
+          />
+          <TextInput
+            value={props.searchQuery}
+            onChangeText={props.onSearchChange}
+            placeholder="Search product name or SKU"
+            placeholderTextColor={PLACEHOLDER}
+            className="h-[52px] flex-1 border border-mod-neutral-400 bg-white px-3 font-a text-[14px] text-mod-ink"
+          />
         </View>
-        {props.scanError ? <Text className="font-a text-[12px] text-mod-accent-700">{props.scanError}</Text> : null}
-
-        <TextInput
-          value={props.searchQuery}
-          onChangeText={props.onSearchChange}
-          placeholder="Search product name or SKU"
-          placeholderTextColor={PLACEHOLDER}
-          className="h-[44px] border border-mod-neutral-400 bg-white px-3 font-a text-[14px] text-mod-ink"
-        />
+        {props.scanError ? <Text className="font-a text-[12px] text-mod-danger-700">{props.scanError}</Text> : null}
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} className="border-b-2 border-mod-divider">

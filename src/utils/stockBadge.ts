@@ -3,11 +3,11 @@ export interface OnHandBadge {
   className: string;
 }
 
-// Square tags on the Modernist ramps: neutral for healthy stock, accent tint
-// under ten, solid accent when out.
+// Square tags on the Modernist ramps: neutral for healthy stock, danger tint
+// under ten, solid danger when out.
 const NEUTRAL = 'bg-mod-neutral-200 text-mod-neutral-800';
-const LOW = 'bg-mod-accent-200 text-mod-accent-800';
-const OUT = 'bg-mod-accent text-white';
+const LOW = 'bg-mod-danger-200 text-mod-danger-800';
+const OUT = 'bg-mod-danger text-white';
 
 export function getOnHandBadge(product: { stock: number; hasStockData: boolean }): OnHandBadge {
   if (!product.hasStockData) {

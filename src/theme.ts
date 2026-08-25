@@ -6,7 +6,8 @@
 export const BG = '#f3f2f2';
 export const SURFACE = '#eae9e9';
 export const INK = '#201e1d';
-export const ACCENT = '#ec3013';
+export const ACCENT = '#1f5aa6';
+export const DANGER = '#ec3013';
 export const DIVIDER = 'rgba(32,30,29,0.4)';
 export const SCRIM = 'rgba(45,43,43,0.55)';
 
@@ -23,6 +24,18 @@ export const NEUTRAL = {
 } as const;
 
 export const ACCENT_RAMP = {
+  100: '#eaf1fb',
+  200: '#cfe1f5',
+  300: '#a7c8ec',
+  400: '#5c97d9',
+  500: '#2f74c4',
+  600: '#1b4c8c',
+  700: '#123863',
+  800: '#0c2745',
+  900: '#081a2e',
+} as const;
+
+export const DANGER_RAMP = {
   100: '#fff2ef',
   200: '#ffe0d9',
   300: '#ffc4b8',

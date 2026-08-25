@@ -58,8 +58,8 @@ function CartItemRow({
           const serial = item.serialNumbers[i];
           return (
             <View key={i} className="mt-1 flex-row items-center gap-1.5">
-              <View className={`h-px w-3.5 ${serial ? 'bg-mod-neutral-600' : 'bg-mod-accent'}`} />
-              <Text className={`font-a-med text-[11px] tracking-label ${serial ? 'text-mod-neutral-700' : 'text-mod-accent-700'}`}>
+              <View className={`h-px w-3.5 ${serial ? 'bg-mod-neutral-600' : 'bg-mod-danger'}`} />
+              <Text className={`font-a-med text-[11px] tracking-label ${serial ? 'text-mod-neutral-700' : 'text-mod-danger-700'}`}>
                 IMEI {serial || 'PENDING SCAN'}
               </Text>
             </View>
@@ -84,8 +84,8 @@ function CartItemRow({
             <Text className="font-a-bold text-[16px] text-mod-ink">+</Text>
           </Pressable>
         </View>
-        <Pressable onPress={() => onRemoveItem(item.product.id)} className="px-2 py-2 active:bg-mod-accent-100">
-          <Text className="font-a-semi text-[11px] tracking-label text-mod-accent-700">REMOVE</Text>
+        <Pressable onPress={() => onRemoveItem(item.product.id)} className="px-2 py-2 active:bg-mod-danger-100">
+          <Text className="font-a-semi text-[11px] tracking-label text-mod-danger-700">REMOVE</Text>
         </Pressable>
       </View>
     </View>
