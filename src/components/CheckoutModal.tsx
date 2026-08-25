@@ -13,9 +13,9 @@
  * PosSaleInstallment (finding 3): it's just a tender-catalog entry requiring
  * a linked customer.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { getPosTenderTypes, recordPosSale, validatePromoter } from '../api/pos';
+import { getPosTenderTypes, getStorePromoters, recordPosSale, validatePromoter } from '../api/pos';
 import { getDefaultStoreInfo } from '../services/terminalConfig';
 import { formatCurrency } from '../utils/currency';
 import type {
@@ -25,6 +25,7 @@ import type {
   PosSaleRequest,
   PosSaleResult,
   PosTenderType,
+  PromoterOption,
   ReceiptData,
   SplitPaymentEntry,
   TransactionDiscount,
@@ -32,6 +33,7 @@ import type {
 import { Button } from './Button';
 import { CashDenominationModal } from './CashDenominationModal';
 import { CustomerSelectModal } from './CustomerSelectModal';
+import { PromoterComboBox } from './PromoterComboBox';
 
 const VAT_RATE = 0.12;
 
@@ -221,6 +223,8 @@ export function CheckoutModal({
   const [promoterValid, setPromoterValid] = useState<boolean | null>(null);
   const [promoterOffline, setPromoterOffline] = useState(false);
   const [promoterError, setPromoterError] = useState<string | null>(null);
+  const [promoterRoster, setPromoterRoster] = useState<PromoterOption[]>([]);
+  const promoterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -318,7 +322,24 @@ export function CheckoutModal({
     setAddedPayments((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handlePromoterBlur = async () => {
+  useEffect(() => {
+    void (async () => {
+      if (!isOpen) {
+        setPromoterRoster([]);
+        return;
+      }
+      try {
+        setPromoterRoster(await getStorePromoters(storeId));
+      } catch {
+        setPromoterRoster([]);
+      }
+    })();
+  }, [isOpen, storeId]);
+
+  // Debounced auto-validation — fires 600ms after the promoter ID settles, whether it
+  // came from picking a roster match in PromoterComboBox or typing one by hand.
+  useEffect(() => {
+    if (promoterDebounceRef.current) clearTimeout(promoterDebounceRef.current);
     const id = promoterId.trim();
     if (!id) {
       setPromoterValid(null);
@@ -327,19 +348,27 @@ export function CheckoutModal({
       return;
     }
     setPromoterValidating(true);
-    try {
-      const result = await validatePromoter(id, storeId);
-      setPromoterValid(result.valid);
-      setPromoterOffline(!!result.offline);
-      setPromoterError(result.valid ? null : result.message ?? 'Promoter not recognized.');
-    } catch (e) {
-      setPromoterValid(false);
-      setPromoterOffline(false);
-      setPromoterError(e instanceof Error ? e.message : 'Failed to validate promoter.');
-    } finally {
-      setPromoterValidating(false);
-    }
-  };
+    setPromoterValid(null);
+    setPromoterOffline(false);
+    setPromoterError(null);
+    promoterDebounceRef.current = setTimeout(async () => {
+      try {
+        const result = await validatePromoter(id, storeId);
+        setPromoterValid(result.valid);
+        setPromoterOffline(!!result.offline);
+        setPromoterError(result.valid ? null : result.message ?? 'Promoter not recognized.');
+      } catch (e) {
+        setPromoterValid(false);
+        setPromoterOffline(false);
+        setPromoterError(e instanceof Error ? e.message : 'Failed to validate promoter.');
+      } finally {
+        setPromoterValidating(false);
+      }
+    }, 600);
+    return () => {
+      if (promoterDebounceRef.current) clearTimeout(promoterDebounceRef.current);
+    };
+  }, [promoterId, storeId]);
 
   const handleComplete = async () => {
     if (!canComplete) return;
@@ -570,20 +599,16 @@ export function CheckoutModal({
           )}
         </ScrollView>
 
-        <View>
+        <View className="z-10">
           <Text className="mb-1 text-xs font-medium text-gray-700">Promoter ID *</Text>
           <View className="flex-row items-center gap-2">
-            <TextInput
+            <PromoterComboBox
               value={promoterId}
-              onChangeText={(v) => {
-                setPromoterId(v);
-                setPromoterValid(null);
-                setPromoterOffline(false);
-                setPromoterError(null);
-              }}
-              onBlur={handlePromoterBlur}
-              autoCapitalize="none"
-              className={`flex-1 rounded-lg border px-3 py-2.5 text-sm ${promoterError ? 'border-red-400' : 'border-gray-300'}`}
+              onChange={setPromoterId}
+              roster={promoterRoster}
+              placeholder="Search promoter ID or name"
+              editable={!submitting}
+              inputClassName={`flex-1 rounded-lg border px-3 py-2.5 text-sm ${promoterError ? 'border-red-400' : 'border-gray-300'}`}
             />
             {promoterValidating && <ActivityIndicator size="small" />}
           </View>
