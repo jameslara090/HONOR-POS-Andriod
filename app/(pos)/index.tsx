@@ -7,8 +7,9 @@ import { useCartContext } from '../../src/contexts/CartContext';
 import { useScanHandler } from '../../src/hooks/useScanHandler';
 import { useSalesHistory } from '../../src/hooks/useSalesHistory';
 import { getSaleById, voidPosSale, recordCashMovement, getSalesSummary } from '../../src/api/pos';
-import { getDefaultStoreId } from '../../src/services/terminalConfig';
+import { getDefaultStoreId, getDefaultStoreInfo } from '../../src/services/terminalConfig';
 import { Button } from '../../src/components/Button';
+import { PosHeader } from '../../src/components/PosHeader';
 import { ProductFilter, type ViewMode } from '../../src/components/ProductFilter';
 import { ProductTile } from '../../src/components/ProductTile';
 import { Pagination } from '../../src/components/Pagination';
@@ -33,6 +34,7 @@ import { WarrantyLookupModal } from '../../src/components/WarrantyLookupModal';
 import { HelpModal } from '../../src/components/HelpModal';
 import { PowerActionModal, type PowerAction } from '../../src/components/PowerActionModal';
 import type { CheckoutTenderHint, PosSaleDetail, Product, ReceiptData, TransactionDiscount } from '../../src/types';
+import { INK } from '../../src/theme';
 
 const STORE_ID = getDefaultStoreId();
 const WIDE_LAYOUT_MIN_WIDTH = 700;
@@ -287,15 +289,15 @@ export default function PosHomeScreen() {
 
   if (catalog.shiftLoading && !catalog.currentShift) {
     return (
-      <SafeAreaView className="flex-1 items-center justify-center bg-gray-50">
-        <ActivityIndicator size="large" color="#111827" />
+      <SafeAreaView className="flex-1 items-center justify-center bg-mod-bg">
+        <ActivityIndicator size="large" color={INK} />
       </SafeAreaView>
     );
   }
 
   if (!catalog.currentShift) {
     return (
-      <SafeAreaView className="flex-1 bg-gray-50">
+      <SafeAreaView className="flex-1 bg-mod-bg">
         <View className="flex-1 items-center justify-center gap-4 p-6">
           <Text className="text-xl font-bold text-gray-900">Open a shift to start selling</Text>
           <Text className="text-center text-gray-500">
@@ -312,7 +314,7 @@ export default function PosHomeScreen() {
   }
 
   const isWide = width >= WIDE_LAYOUT_MIN_WIDTH;
-  const numColumns = viewMode === 'grid' ? Math.max(2, Math.floor((isWide ? width * 0.65 : width) / 220)) : 1;
+  const numColumns = viewMode === 'grid' ? Math.max(2, Math.floor((isWide ? width - 440 : width) / 260)) : 1;
 
   const cartPanel = (
     <Cart
@@ -336,41 +338,27 @@ export default function PosHomeScreen() {
   );
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-50">
-      <View className="flex-1 flex-row px-4 pt-4">
-        <View className="flex-1">
-          <View className="mb-3 flex-row items-center justify-between">
-            <View>
-              <Text className="text-lg font-bold text-gray-900">Welcome, {currentUser?.name}</Text>
-              {loggedInOffline && <Text className="text-xs font-medium text-amber-600">Signed in offline</Text>}
-            </View>
-            <View className="flex-row items-center gap-3">
-              {!isWide && (
-                <Button variant="outline" onPress={() => setShowMobileCart(true)}>
-                  {`Cart (${cart.items.length})`}
-                </Button>
-              )}
-              <Button
-                variant="outline"
-                onPress={() => {
-                  setShowSalesHistory(true);
-                  void salesHistory.reload();
-                }}
-              >
-                History
-              </Button>
-              <Button variant="outline" onPress={() => setShowShiftModal(true)}>
-                Shift
-              </Button>
-              <Button variant="outline" onPress={() => setShowUserMenu(true)}>
-                Menu
-              </Button>
-            </View>
-          </View>
-
+    <SafeAreaView className="flex-1 bg-mod-bg">
+      <PosHeader
+        userName={currentUser?.name ?? ''}
+        offline={loggedInOffline}
+        register={catalog.currentShift.register}
+        storeName={getDefaultStoreInfo().name}
+        isWide={isWide}
+        cartCount={cart.items.length}
+        onCart={() => setShowMobileCart(true)}
+        onHistory={() => {
+          setShowSalesHistory(true);
+          void salesHistory.reload();
+        }}
+        onShift={() => setShowShiftModal(true)}
+        onMenu={() => setShowUserMenu(true)}
+      />
+      <View className="flex-1 flex-row">
+        <View className="flex-1 px-4 pt-4">
           {catalog.productsLoading ? (
             <View className="flex-1 items-center justify-center">
-              <ActivityIndicator size="large" color="#111827" />
+              <ActivityIndicator size="large" color={INK} />
               <Text className="mt-2 text-gray-500">Loading products...</Text>
             </View>
           ) : catalog.productsError && catalog.products.length === 0 ? (
@@ -434,12 +422,12 @@ export default function PosHomeScreen() {
           )}
         </View>
 
-        {isWide && <View className="ml-4 w-80">{cartPanel}</View>}
+        {isWide && <View className="w-[440px] border-l-2 border-mod-divider">{cartPanel}</View>}
       </View>
 
       {!isWide && (
         <Modal visible={showMobileCart} animationType="slide" onRequestClose={() => setShowMobileCart(false)}>
-          <SafeAreaView className="flex-1 bg-gray-50 p-4">
+          <SafeAreaView className="flex-1 bg-mod-bg p-4">
             <Pressable onPress={() => setShowMobileCart(false)} className="mb-2 self-end">
               <Text className="text-sm text-gray-500">Close</Text>
             </Pressable>

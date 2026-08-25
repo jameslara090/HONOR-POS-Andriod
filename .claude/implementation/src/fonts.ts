@@ -1,6 +1,6 @@
 /**
  * Archivo carries the Modernist type scale (heading and body are the same
- * family at different weights). Installed via:
+ * family at different weights). Install with:
  *
  *   npx expo install @expo-google-fonts/archivo
  *

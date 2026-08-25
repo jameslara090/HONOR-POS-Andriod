@@ -13,7 +13,8 @@ import { AuthProvider, useAuthContext } from '../src/contexts/AuthContext';
 import { CatalogProvider } from '../src/contexts/CatalogContext';
 import { CartProvider } from '../src/contexts/CartContext';
 import { registerBackgroundSync } from '../src/services/backgroundSync';
-import { HONOR_BRAND_FONTS } from '../src/fonts';
+import { APP_FONTS } from '../src/fonts';
+import { INK } from '../src/theme';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -23,7 +24,7 @@ function RootNavigator() {
   if (authChecking) {
     return (
       <View className="flex-1 items-center justify-center bg-white">
-        <ActivityIndicator size="large" color="#111827" />
+        <ActivityIndicator size="large" color={INK} />
       </View>
     );
   }
@@ -42,7 +43,7 @@ function RootNavigator() {
 
 export default function RootLayout() {
   const [configReady, setConfigReady] = useState(false);
-  const [fontsLoaded, fontError] = useFonts(HONOR_BRAND_FONTS);
+  const [fontsLoaded, fontError] = useFonts(APP_FONTS);
   const ready = configReady && (fontsLoaded || !!fontError);
 
   useEffect(() => {
